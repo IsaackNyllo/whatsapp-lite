@@ -43,6 +43,11 @@ fn configure_webview_args() {
         "--disable-features=msWebOOUI".to_string(),
     ]);
 
+    // desenvolvimento: ex. WL_WEBVIEW_ARGS=--remote-debugging-port=9222 para inspecionar a página
+    if let Ok(extra) = env::var("WL_WEBVIEW_ARGS") {
+        args.push(extra);
+    }
+
     if !args.is_empty() {
         env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", args.join(" "));
     }

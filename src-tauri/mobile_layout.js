@@ -9,10 +9,23 @@
     // abaixo disso a barra lateral vai para baixo
     const NARROW_WIDTH = 640;
     const BOTTOM_NAV_HEIGHT = 56;
+    // até esta largura: modo compacto, só mensagens (sem abas, busca, filtros e cabeçalhos)
+    const COMPACT_WIDTH = 360;
 
     let timer = null;
 
     const CSS = `
+        @media (max-width: ${COMPACT_WIDTH}px) {
+            html.wl-list [data-wl="nav"],
+            html.wl-list [data-wl="col"] > header,
+            #side > div:first-child,
+            #side [aria-label="chat-list-filters"],
+            html.wl-chat #main > header,
+            #${BACK_ID},
+            #main footer [role="textbox"] + div { display: none !important; }
+            html.wl-list [data-wl="col"],
+            html.wl-list [data-wl="layer"] { height: 100% !important; bottom: 0 !important; }
+        }
         @media (max-width: ${NARROW_WIDTH}px) {
             html.wl-list [data-wl="nav"] {
                 position: absolute !important;
@@ -45,6 +58,7 @@
                 height: auto !important;
             }
             html.wl-list [data-wl="nav"] hr { display: none !important; }
+            html.wl-list [data-wl-hide] { display: none !important; }
             html.wl-list [data-wl="col"] {
                 margin-left: 0 !important;
                 height: calc(100% - ${BOTTOM_NAV_HEIGHT}px) !important;
@@ -178,6 +192,29 @@
         return !pane.querySelector('[data-testid="intro-panel"]');
     }
 
+    // na barra de baixo: o que não cabe some, os menos importantes primeiro
+    const NAV_PRIORITY = [/conversas|chats/i, /status/i, /liga[çc][õo]es|calls/i, /comunidades|communities/i];
+
+    function navRank(item) {
+        const el = item.matches('[aria-label]') ? item : item.querySelector('[aria-label]');
+        const label = el ? el.getAttribute('aria-label') : '';
+        const i = NAV_PRIORITY.findIndex(re => re.test(label));
+        return i < 0 ? NAV_PRIORITY.length : i;
+    }
+
+    function fitNav(nav) {
+        const items = nav ? [...nav.querySelectorAll(':scope > div > div > div > *')] : [];
+        items.forEach(el => el.removeAttribute('data-wl-hide'));
+        if (!nav || window.innerWidth > NARROW_WIDTH) return;
+        const row = nav.firstElementChild;
+        // estável: entre os de mesma prioridade, some o último da barra
+        const order = items.map((el, i) => [navRank(el), i, el]).sort((a, b) => b[0] - a[0] || b[1] - a[1]);
+        for (const [rank, , el] of order) {
+            if (row.scrollWidth <= row.clientWidth + 1 || rank === 0) break;
+            el.setAttribute('data-wl-hide', '');
+        }
+    }
+
     function refresh() {
         const column = findColumn();
         if (!column) {
@@ -186,6 +223,7 @@
         }
         const nav = column.parentElement.querySelector(':scope > header');
         tag(nav, 'nav');
+        if (document.documentElement.classList.contains('wl-list')) fitNav(nav);
         for (const layer of column.parentElement.children) {
             const style = getComputedStyle(layer);
             if (style.position === 'absolute' && parseFloat(style.left) > 0) tag(layer, 'layer');
@@ -240,6 +278,7 @@
     }
 
     window.__wlMobile = {
+        back: goBack,
         destroy() {
             clearInterval(timer);
             window.removeEventListener('mousedown', onMouseBack, true);
@@ -247,6 +286,7 @@
             window.removeEventListener('click', refreshSoon, true);
             setMode(null);
             document.querySelectorAll('[data-wl]').forEach(el => el.removeAttribute('data-wl'));
+            document.querySelectorAll('[data-wl-hide]').forEach(el => el.removeAttribute('data-wl-hide'));
             [STYLE_ID, BACK_ID].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.remove();
