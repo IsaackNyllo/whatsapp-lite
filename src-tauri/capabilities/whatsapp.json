@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "whatsapp-page",
+  "description": "O que a página do WhatsApp Web pode pedir ao app: só fixar a janela por cima",
+  "windows": ["main"],
+  "remote": { "urls": ["https://web.whatsapp.com/*"] },
+  "permissions": ["core:window:allow-set-always-on-top"]
+}
