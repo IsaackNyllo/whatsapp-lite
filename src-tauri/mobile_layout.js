@@ -15,17 +15,6 @@
     let timer = null;
 
     const CSS = `
-        @media (max-width: ${COMPACT_WIDTH}px) {
-            html.wl-list [data-wl="nav"],
-            html.wl-list [data-wl="col"] > header,
-            #side > div:first-child,
-            #side [aria-label="chat-list-filters"],
-            html.wl-chat #main > header,
-            #${BACK_ID},
-            #main footer [role="textbox"] + div { display: none !important; }
-            html.wl-list [data-wl="col"],
-            html.wl-list [data-wl="layer"] { height: 100% !important; bottom: 0 !important; }
-        }
         @media (max-width: ${NARROW_WIDTH}px) {
             html.wl-list [data-wl="nav"] {
                 position: absolute !important;
@@ -131,6 +120,21 @@
         }
         #${BACK_ID}:hover { background: rgba(127, 127, 127, 0.2); }
         html.wl-chat #${BACK_ID} { display: flex; }
+        /* fica no fim: precisa vencer as regras da barra de baixo acima */
+        @media (max-width: ${COMPACT_WIDTH}px) {
+            html.wl-list [data-wl="nav"],
+            html.wl-list [data-wl="col"] > header,
+            #side > div:first-child,
+            #side [aria-label="chat-list-filters"],
+            html.wl-chat #main > header,
+            #main > header + span,
+            #${BACK_ID},
+            #main footer [role="textbox"] + div { display: none !important; }
+            html.wl-list [data-wl="col"],
+            html.wl-list [data-wl="layer"] { height: 100% !important; bottom: 0 !important; }
+            /* anexos vêm com largura fixa (330 px) e vazariam da janela */
+            #main [role="row"] * { max-width: 100% !important; }
+        }
     `;
 
     function findColumn() {
