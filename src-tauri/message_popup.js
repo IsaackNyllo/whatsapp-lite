@@ -54,6 +54,7 @@
             rows.set(name.getAttribute('title'), {
                 row,
                 count: badge ? parseInt(badge.textContent, 10) || 1 : 0,
+                muted: !!row.querySelector('[data-icon="muted"], [data-testid="muted"]'),
                 open: row.matches('[aria-selected="true"]') || !!row.querySelector('[aria-selected="true"]'),
             });
         }
@@ -76,7 +77,7 @@
             // a conversa aberta chega a ganhar o contador antes de ser marcada como lida
             const openName = openChatName();
             for (const [name, info] of rows) {
-                if (info.open || name === openName) continue;
+                if (info.open || info.muted || name === openName) continue;
                 if (info.count > (counts.get(name) || 0)) {
                     show(name, info);
                     break;
