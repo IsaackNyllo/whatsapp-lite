@@ -1,8 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "whatsapp-page",
-  "description": "O que a página do WhatsApp Web pode pedir ao app: só fixar a janela por cima",
+  "description": "O que a página do WhatsApp Web pode pedir ao app: só os botões da barra de título",
   "windows": ["main"],
   "remote": { "urls": ["https://web.whatsapp.com/*"] },
-  "permissions": ["core:window:allow-set-always-on-top"]
+  "permissions": [
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-start-dragging",
+    "core:window:allow-close"
+  ]
 }

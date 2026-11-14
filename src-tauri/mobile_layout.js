@@ -101,7 +101,7 @@
 
         #${BACK_ID} {
             position: fixed;
-            top: 12px;
+            top: calc(12px + var(--wl-bar, 0px));
             left: 8px;
             width: 40px;
             height: 40px;
