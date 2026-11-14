@@ -137,14 +137,13 @@
         }
     `;
 
+    // a aba Ligações cria outro #side dentro de uma camada absoluta; a coluna certa é a fixa
     function findColumn() {
-        let el = document.getElementById('side');
-        if (!el) return null;
-        while (el.parentElement && !el.parentElement.classList.contains('two')) {
-            el = el.parentElement;
-            if (el === document.body) return null;
+        for (let el of document.querySelectorAll('#side')) {
+            while (el.parentElement && !el.parentElement.classList.contains('two')) el = el.parentElement;
+            if (el.parentElement && getComputedStyle(el).position !== 'absolute') return el;
         }
-        return el.parentElement ? el : null;
+        return null;
     }
 
     // o WhatsApp tem camadas sobrepostas com o mesmo layout lista/painel
@@ -155,8 +154,10 @@
             if (layer === column || getComputedStyle(layer).position !== 'absolute') continue;
             for (const child of layer.children) {
                 const next = child.nextElementSibling;
-                if (next && Math.abs(child.offsetLeft + layer.offsetLeft - left) <= 1 &&
-                    child.offsetWidth < layer.offsetWidth) {
+                // Ligações/Status: camada em left 0 com a lista deslocada pela barra lateral
+                const aligned = Math.abs(child.offsetLeft + layer.offsetLeft - left) <= 1 ||
+                    (layer.offsetLeft === 0 && child === layer.firstElementChild && child.textContent);
+                if (next && aligned && child.offsetWidth < layer.offsetWidth) {
                     pairs.push([child, next]);
                     break;
                 }
