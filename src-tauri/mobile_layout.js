@@ -141,7 +141,9 @@
     function findColumn() {
         for (let el of document.querySelectorAll('#side')) {
             while (el.parentElement && !el.parentElement.classList.contains('two')) el = el.parentElement;
-            if (el.parentElement && getComputedStyle(el).position !== 'absolute') return el;
+            // a coluna já marcada fica absoluta de propósito quando a conversa está aberta
+            if (el.parentElement && (el.getAttribute('data-wl') === 'col' ||
+                getComputedStyle(el).position !== 'absolute')) return el;
         }
         return null;
     }
