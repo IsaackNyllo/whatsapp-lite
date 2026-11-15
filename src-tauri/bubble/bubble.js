@@ -5,7 +5,7 @@ const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args);
 const $ = (id) => document.getElementById(id);
 
 // tamanhos da janela em cada estado
-const SIZE = { ball: [76, 76], card: [340, 76], opts: [300, 200] };
+const SIZE = { ball: [76, 76], card: [340, 104], reply: [340, 138], opts: [300, 200] };
 const DEFAULTS = { color: '#ffffff', count: true, preview: true, seconds: 5 };
 
 let opts = { ...DEFAULTS };
@@ -30,6 +30,8 @@ window.wlUnread = (n) => { unread = n; apply(); };
 
 window.wlMessage = ({ chat, text, avatar }) => {
     if (!opts.preview || $('opts').classList.contains('on')) return;
+    // não atropela uma resposta sendo escrita
+    if ($('card').matches('.on.replying')) return;
     cardChat = chat;
     $('name').textContent = chat;
     $('msg').textContent = text;
@@ -41,7 +43,8 @@ window.wlMessage = ({ chat, text, avatar }) => {
 };
 
 function hideCard() {
-    $('card').classList.remove('on');
+    $('card').classList.remove('on', 'replying');
+    $('answer').value = '';
     if (!$('opts').classList.contains('on')) resize('ball');
 }
 
@@ -62,9 +65,24 @@ $('ball').addEventListener('mouseup', (e) => {
 });
 
 $('card').addEventListener('click', (e) => {
+    if (e.target === $('reply') || e.target === $('answer')) return;
     const chat = cardChat;
     hideCard();
     if (e.target !== $('close')) invoke('bubble_open', { chat });
+});
+
+// Responder: vira um campo; Enter envia, Esc cancela
+$('reply').addEventListener('click', () => {
+    clearTimeout(hideTimer);
+    $('card').classList.add('replying');
+    resize('reply');
+    $('answer').focus();
+});
+$('answer').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideCard();
+    if (e.key !== 'Enter' || !$('answer').value.trim()) return;
+    invoke('bubble_reply', { chat: cardChat, text: $('answer').value });
+    hideCard();
 });
 
 // opções no botão direito; ficam salvas nesta janela

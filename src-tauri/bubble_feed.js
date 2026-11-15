@@ -1,12 +1,32 @@
-// Manda para a bolinha (janela "bubble") as mensagens novas e o total de não lidas.
-// Roda sempre, também com a janela principal escondida.
+// Manda para a bolinha (janela "bubble") as mensagens novas e o total de não lidas,
+// e recebe dela as respostas. Roda sempre, também com a janela principal escondida.
 (function () {
     'use strict';
     if (window.top !== window) return;
 
     const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args).catch(() => {});
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     let counts = null;
     let lastUnread = -1;
+
+    // no modo bolinha quem avisa é o balão dela, não a notificação do Windows
+    window.__wlBubbleMode = false;
+    const Native = window.Notification;
+    if (Native) {
+        const Quiet = function (title, options) {
+            if (window.__wlBubbleMode) return { close() {}, addEventListener() {}, removeEventListener() {} };
+            return new Native(title, options);
+        };
+        Object.defineProperty(Quiet, 'permission', { get: () => Native.permission });
+        Quiet.requestPermission = Native.requestPermission.bind(Native);
+        window.Notification = Quiet;
+    }
+    if (window.ServiceWorkerRegistration) {
+        const show = ServiceWorkerRegistration.prototype.showNotification;
+        ServiceWorkerRegistration.prototype.showNotification = function (...args) {
+            return window.__wlBubbleMode ? Promise.resolve() : show.apply(this, args);
+        };
+    }
 
     function tick() {
         const chats = window.__wlChats;
@@ -22,11 +42,11 @@
             invoke('bubble_unread', { count: unread });
         }
 
-        if (counts) {
+        // escondida, a página ainda pode dizer que tem foco; vale a visibilidade
+        const inUse = document.visibilityState === 'visible' && document.hasFocus();
+        if (counts && !inUse) {
             for (const [name, info] of rows) {
                 if (info.muted || info.count <= (counts.get(name) || 0)) continue;
-                // com a janela em uso, quem avisa é o balão de dentro da conversa
-                if (document.hasFocus()) break;
                 const img = info.row.querySelector('img');
                 invoke('bubble_message', {
                     chat: name,
@@ -39,8 +59,28 @@
         counts = new Map([...rows].map(([name, info]) => [name, info.count]));
     }
 
-    // chamado pelo Rust quando a bolinha pede para abrir uma conversa
+    function openTitle() {
+        const el = document.querySelector('#main [data-testid="conversation-info-header-chat-title"]');
+        return el ? el.textContent.trim() : null;
+    }
+
+    // chamados pelo Rust
     window.__wlOpenChat = (name) => window.__wlChats && window.__wlChats.openChat(name);
+
+    // abre a conversa, confere que é ela mesma e envia; nunca envia para outra conversa
+    window.__wlReply = async (name, text) => {
+        if (!window.__wlChats || !text.trim()) return;
+        if (openTitle() !== name) window.__wlChats.openChat(name);
+        for (let i = 0; i < 30 && openTitle() !== name; i++) await sleep(100);
+        if (openTitle() !== name) return;
+        const box = document.querySelector('#main footer [contenteditable="true"]');
+        if (!box) return;
+        box.focus();
+        document.execCommand('insertText', false, text);
+        await sleep(150);
+        const send = document.querySelector('#main footer button[aria-label="Enviar"]');
+        if (send) send.click();
+    };
 
     setInterval(tick, 1000);
 })();

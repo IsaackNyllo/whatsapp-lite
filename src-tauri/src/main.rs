@@ -165,6 +165,7 @@ fn show_main_window(app: &AppHandle) {
         let _ = bubble.hide();
     }
     if let Some(window) = app.get_webview_window("main") {
+        let _ = window.eval("window.__wlBubbleMode = false");
         set_in_tray(&window, false);
         let _ = window.unminimize();
         let _ = window.show();
@@ -199,6 +200,7 @@ fn bubble_enter(app: AppHandle) {
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.hide();
         set_in_tray(&main, true);
+        let _ = main.eval("window.__wlBubbleMode = true");
     }
     if let Some(bubble) = app.get_webview_window("bubble") {
         let _ = bubble.show();
@@ -221,6 +223,12 @@ fn bubble_open(app: AppHandle, chat: Option<String>) {
 fn bubble_message(app: AppHandle, chat: String, text: String, avatar: Option<String>) {
     let payload = serde_json::json!({ "chat": chat, "text": text, "avatar": avatar });
     eval_in(&app, "bubble", format!("window.wlMessage && window.wlMessage({payload})"));
+}
+
+#[tauri::command]
+fn bubble_reply(app: AppHandle, chat: String, text: String) {
+    let args = serde_json::json!([chat, text]);
+    eval_in(&app, "main", format!("window.__wlReply && window.__wlReply(...{args})"));
 }
 
 #[tauri::command]
@@ -392,6 +400,7 @@ fn main() {
             bubble_enter,
             bubble_open,
             bubble_message,
+            bubble_reply,
             bubble_unread
         ])
         .on_window_event(|window, event| {

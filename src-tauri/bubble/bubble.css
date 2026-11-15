@@ -11,10 +11,20 @@ html, body { margin: 0; background: transparent; overflow: hidden; user-select: 
          font-weight: 700; font-size: 12px; line-height: 20px; text-align: center; display: none; }
 #badge.on { display: block; }
 
-#card { position: fixed; top: 10px; left: 76px; right: 8px; height: 56px; box-sizing: border-box;
-        display: none; align-items: center; gap: 10px; padding: 0 8px 0 10px; border-radius: 12px;
+/* balão saindo da bolinha: a ponta aponta para ela */
+#card { position: fixed; top: 10px; left: 80px; right: 8px; box-sizing: border-box;
+        display: none; flex-direction: column; gap: 6px; padding: 8px 8px 8px 10px; border-radius: 12px;
         background: #202c33; box-shadow: 0 2px 8px rgba(0,0,0,.45); cursor: pointer; }
+#card::before { content: ""; position: absolute; left: -7px; top: 21px; border: 7px solid transparent;
+                border-left: 0; border-right-color: #202c33; }
 #card.on { display: flex; }
+#card .top { display: flex; align-items: center; gap: 10px; }
+#reply { align-self: flex-start; border: none; border-radius: 6px; padding: 3px 10px; cursor: pointer;
+         background: #2a3942; color: #25d366; font: 600 12px "Segoe UI", sans-serif; }
+#answer { display: none; border: none; border-radius: 6px; padding: 6px 8px; outline: none;
+          background: #2a3942; color: #e9edef; font: 13px "Segoe UI", sans-serif; }
+#card.replying #reply { display: none; }
+#card.replying #answer { display: block; }
 #avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: none; }
 #avatar:not([src]) { display: none; }
 #card .text { min-width: 0; flex: 1; }
