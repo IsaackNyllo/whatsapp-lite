@@ -95,6 +95,15 @@
         #${VIEW} .wl-toast { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); max-width: calc(100% - 32px);
             background: #2a3942; color: ${FG}; padding: 10px 18px; border-radius: 8px; font-size: 14px;
             box-shadow: 0 4px 14px rgba(0,0,0,.5); }
+        #${VIEW} .wl-choice { box-sizing: border-box; border: 2px solid ${LINE}; border-radius: 12px; padding: 10px 12px 12px;
+            margin: 0 0 10px; cursor: pointer; }
+        #${VIEW} .wl-choice:hover { background: ${HOVER}; }
+        #${VIEW} .wl-choice:focus-visible { outline: 2px solid ${FG}; outline-offset: 2px; }
+        #${VIEW} .wl-choice[aria-checked="true"] { border-color: #00a884; }
+        #${VIEW} .wl-choice .wl-lbl { display: flex; align-items: center; gap: 8px; font-size: 14px; line-height: 20px; margin-bottom: 8px; }
+        #${VIEW} .wl-choice .wl-lbl i { flex: none; width: 16px; height: 16px; border-radius: 50%; box-sizing: border-box;
+            border: 2px solid #6b6f6f; }
+        #${VIEW} .wl-choice[aria-checked="true"] .wl-lbl i { border: 5px solid #00a884; }
         @media (max-width: 640px) { #${VIEW} .wl-body { padding: 0 16px 24px; } }
     `;
 
@@ -111,6 +120,8 @@
         ['mcp', 'Conectores de IA', 'Claude, Gemini, Codex e outros leem suas conversas'],
         ['aplicativo', 'Aplicativo', 'Segundo plano, iniciar com o Windows, downloads'],
     ];
+
+    const POPUPS = [['a', 'A · Cartão no topo (padrão)'], ['b', 'B · Canto de baixo, à direita'], ['c', 'C · Pílula compacta no topo']];
 
     let state = null;     // lite_get: valores do app (sem a chave)
     let current = null;   // subtela aberta
@@ -168,7 +179,11 @@
         aplicativo: ['Aplicativo', () =>
             row('Iniciar com o Windows', 'Abre escondido na bandeja quando o computador liga', sw('autostart', state.autostart, 'Iniciar com o Windows')) +
             row('Rodar em segundo plano', 'Fechar a janela deixa o app na bandeja', sw('run_in_background', state.run_in_background, 'Rodar em segundo plano')) +
-            row('Perguntar onde salvar downloads', '', sw('ask_download_path', state.ask_download_path, 'Perguntar onde salvar downloads'))],
+            row('Perguntar onde salvar downloads', '', sw('ask_download_path', state.ask_download_path, 'Perguntar onde salvar downloads')) +
+            group('Aviso de mensagem nova') +
+            `<div class="wl-s" style="padding-bottom:10px">Aparece quando chega mensagem de outra conversa enquanto você está numa conversa. Clicar nele abre a conversa.</div>` +
+            POPUPS.map(([id, name]) =>
+                `<div class="wl-choice" role="radio" tabindex="0" aria-checked="${state.popup_style === id}" data-pop="${id}"><div class="wl-lbl"><i></i>${name}</div><div data-ex="${id}"></div></div>`).join('')],
     };
 
     function viewEl() { return document.getElementById(VIEW); }
@@ -179,6 +194,9 @@
         const [title, html] = VIEWS[current];
         el.querySelector('.wl-title').textContent = title;
         el.querySelector('.wl-body').innerHTML = html();
+        // exemplos do aviso: os mesmos cartões que aparecem de verdade (message_popup.js)
+        el.querySelectorAll('[data-ex]').forEach((ex) =>
+            window.__wlPopup.fill(ex, ex.dataset.ex, 'Mãe', 'Oi, meu filho, já chegou em casa?', null, true));
     }
 
     function toast(text) {
@@ -201,6 +219,10 @@
             el.innerHTML = `<header><button class="wl-back" aria-label="Voltar" title="Voltar">${BACK}</button><div class="wl-title"></div></header><div class="wl-body"></div>`;
             el.addEventListener('click', onClick);
             el.addEventListener('input', onInput);
+            el.addEventListener('keydown', (e) => {
+                const choice = e.target.closest('[data-pop]');
+                if (choice && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pick(choice.dataset.pop); }
+            });
             drawer.appendChild(el);
         }
         current = name;
@@ -237,7 +259,16 @@
         }
     }
 
+    function pick(id) {
+        state.popup_style = id;
+        window.__wlPopup.setStyle(id);
+        invoke('lite_popup_style', { style: id }).catch(() => {});
+        render();
+    }
+
     async function onClick(e) {
+        const choice = e.target.closest('[data-pop]');
+        if (choice) return pick(choice.dataset.pop);
         const t = e.target.closest('button');
         if (!t || t.disabled) return;
         if (t.classList.contains('wl-back')) return close();

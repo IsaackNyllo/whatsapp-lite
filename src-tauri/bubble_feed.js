@@ -23,10 +23,15 @@
     // no modo bolinha quem avisa é o balão dela, não a notificação do Windows
     window.__wlBubbleMode = false;
     const Native = window.Notification;
+    // clicar na notificação do Windows abre a janela (escondida na bandeja) já na conversa; o título é o nome dela
+    const openOnClick = (n, title) => {
+        n.addEventListener('click', () => invoke('bubble_open', { chat: title }));
+        return n;
+    };
     if (Native) {
         const Quiet = function (title, options) {
             if (window.__wlBubbleMode) return { close() {}, addEventListener() {}, removeEventListener() {} };
-            return new Native(title, options);
+            return openOnClick(new Native(title, options), title);
         };
         Object.defineProperty(Quiet, 'permission', { get: () => Native.permission });
         Quiet.requestPermission = Native.requestPermission.bind(Native);
@@ -34,8 +39,16 @@
     }
     if (window.ServiceWorkerRegistration) {
         const show = ServiceWorkerRegistration.prototype.showNotification;
-        ServiceWorkerRegistration.prototype.showNotification = function (...args) {
-            return window.__wlBubbleMode ? Promise.resolve() : show.apply(this, args);
+        // o WhatsApp avisa mensagens por aqui (service worker); o clique nessa notificação não mostra a janela
+        // escondida. Mostramos a mesma notificação pela página, que dá o evento click para abrir a conversa.
+        ServiceWorkerRegistration.prototype.showNotification = function (title, options) {
+            if (window.__wlBubbleMode) return Promise.resolve();
+            try {
+                openOnClick(new Native(title, options), title);
+                return Promise.resolve();
+            } catch (e) {
+                return show.call(this, title, options);
+            }
         };
     }
 

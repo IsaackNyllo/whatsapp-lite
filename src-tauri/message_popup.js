@@ -6,35 +6,58 @@
 
     if (window.__wlPopup) window.__wlPopup.destroy();
 
+    // Três visuais (a: cartão no topo, b: canto de baixo, c: pílula). Ficam abaixo da barra de título
+    // (--wl-bar, em titlebar.js): por cima dela o clique ia para a barra, não para o aviso.
     const CSS = `
-        #${POPUP_ID} {
-            position: fixed;
-            top: 8px;
-            left: 50%;
-            transform: translate(-50%, -150%);
-            width: min(420px, calc(100vw - 16px));
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 12px;
-            border-radius: 12px;
-            background: #202c33;
-            color: #e9edef;
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-            font: 14px/1.3 "Segoe UI", sans-serif;
-            cursor: pointer;
-            z-index: 10001;
-            transition: transform 0.2s ease-out;
+        .wl-pop {
+            position: fixed; z-index: 10001; box-sizing: border-box; overflow: hidden;
+            display: flex; flex-direction: column; gap: 8px;
+            background: #202c33; color: #e9edef; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+            font: 14px/1.3 "Segoe UI", sans-serif; cursor: pointer;
+            opacity: 0; visibility: hidden; pointer-events: none;
+            transform: translate(var(--tx, 0), var(--ty, -12px));
+            transition: opacity .2s, transform .2s, visibility 0s .2s;
         }
-        #${POPUP_ID}.wl-show { transform: translate(-50%, 0); }
-        #${POPUP_ID} img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex: none; }
-        #${POPUP_ID} .wl-text { min-width: 0; flex: 1; }
-        #${POPUP_ID} .wl-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        #${POPUP_ID} .wl-preview { color: #aebac1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        #${POPUP_ID} .wl-close {
-            flex: none; border: none; background: none; color: #aebac1;
-            font-size: 18px; cursor: pointer; padding: 0 4px;
-        }
+        .wl-pop.wl-show { opacity: 1; visibility: visible; pointer-events: auto;
+            transform: translate(var(--tx, 0), 0); transition: opacity .2s, transform .2s; }
+        .wl-pop:hover { filter: brightness(1.08); }
+        .wl-pop .wl-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
+        .wl-pop .wl-av { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex: none;
+            background: linear-gradient(135deg, #8b6f4e, #c79a6b); }
+        .wl-pop .wl-text { min-width: 0; flex: 1; }
+        .wl-pop .wl-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .wl-pop .wl-time { color: #21c063; font-size: 12px; font-weight: 400; }
+        .wl-pop .wl-preview { color: #aebac1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .wl-pop .wl-close { flex: none; display: grid; place-items: center; border: 0; background: none;
+            color: #aebac1; cursor: pointer; padding: 4px; border-radius: 50%; }
+        .wl-pop .wl-close:hover { background: rgba(255, 255, 255, .08); }
+        .wl-pop .wl-close svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; }
+        .wl-pop .wl-reply { align-self: flex-start; border: 0; border-radius: 6px; padding: 3px 10px; cursor: pointer;
+            background: #2a3942; color: #25d366; font: 600 12px "Segoe UI", sans-serif; }
+        .wl-pop .wl-answer { border: 0; border-radius: 6px; padding: 6px 8px; outline: none; width: 100%; box-sizing: border-box;
+            background: #2a3942; color: #e9edef; font: 13px "Segoe UI", sans-serif; }
+        .wl-pop .wl-prog { position: absolute; left: 0; bottom: 0; height: 3px; background: #21c063;
+            animation: wl-prog var(--wl-ms, 5s) linear forwards; }
+        @keyframes wl-prog { from { width: 100%; } to { width: 0; } }
+
+        .wl-a { --tx: -50%; top: calc(var(--wl-bar, 0px) + 10px); left: 50%; width: min(400px, calc(100vw - 24px));
+            border-radius: 12px; padding: 10px 8px 10px 12px; }
+        .wl-b { right: 14px; bottom: 76px; --ty: 12px; width: min(300px, calc(100vw - 28px));
+            border-radius: 12px; border-left: 3px solid #21c063; padding: 10px 8px 10px 12px; }
+        .wl-c { --tx: -50%; top: calc(var(--wl-bar, 0px) + 8px); left: 50%; width: max-content;
+            max-width: calc(100vw - 24px); border-radius: 22px; padding: 4px 6px 4px 4px; box-shadow: 0 4px 14px rgba(0, 0, 0, .5); }
+        .wl-c .wl-top { gap: 10px; }
+        .wl-c .wl-av { width: 28px; height: 28px; }
+        .wl-c .wl-text { max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .wl-c .wl-name, .wl-c .wl-preview { display: inline; }
+        .wl-c .wl-name::after { content: ": "; }
+        .wl-c .wl-time { display: none; }
+
+        /* amostra dentro das Configurações: sem posição, sem sumir */
+        .wl-pop.wl-sample { position: relative; opacity: 1; visibility: visible; transform: none; pointer-events: none;
+            top: auto; left: auto; right: auto; bottom: auto; width: auto; max-width: 100%; cursor: default; }
+        .wl-pop.wl-sample.wl-c { width: max-content; }
+        .wl-pop.wl-sample .wl-prog { animation: none; width: 60%; }
     `;
 
     let counts = new Map();
@@ -42,6 +65,7 @@
     let scanTimer = null;
     let hideTimer = null;
     let started = false;
+    let style = 'a'; // visual escolhido em Configurações > Aplicativo (settings.json)
 
     function readRows(pane = document.getElementById('pane-side'), sel = '[role="row"]') {
         const rows = new Map();
@@ -226,37 +250,62 @@
 
     window.__wlChats = { readRows, previewOf, openChat, groups };
 
+    const X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    const el = (tag, cls, text) => {
+        const e = document.createElement(tag);
+        e.className = cls;
+        if (text) e.textContent = text;
+        return e;
+    };
+
+    // monta o cartão de um visual (a, b ou c) dentro de `box`; `sample` = exemplo das Configurações
+    function fill(box, vis, name, preview, avatar, sample) {
+        box.className = `wl-pop wl-${vis}${sample ? ' wl-sample' : ''}`;
+        box.style.setProperty('--wl-ms', SHOW_MS + 'ms');
+        const top = el('div', 'wl-top');
+        let av;
+        if (avatar) { av = el('img', 'wl-av'); av.src = avatar; } else av = el('span', 'wl-av');
+        const text = el('div', 'wl-text');
+        const title = el('div', 'wl-name', name);
+        title.append(el('span', 'wl-time', ' · agora'));
+        text.append(title, el('div', 'wl-preview', preview));
+        const close = el('button', 'wl-close');
+        close.innerHTML = X;
+        close.title = 'Fechar';
+        top.append(av, text, close);
+        box.replaceChildren(top);
+        if (vis === 'a') box.append(el('button', 'wl-reply', 'Responder'), el('span', 'wl-prog'));
+        return close;
+    }
+
     function show(name, info) {
         const popup = document.getElementById(POPUP_ID);
         if (!popup) return;
-        const preview = previewOf(info.row);
         const avatar = info.row.querySelector('img');
+        const close = fill(popup, style, name, previewOf(info.row), avatar && avatar.src);
+        const reply = popup.querySelector('.wl-reply');
 
-        popup.replaceChildren();
-        if (avatar && avatar.src) {
-            const img = document.createElement('img');
-            img.src = avatar.src;
-            popup.appendChild(img);
-        }
-        const text = document.createElement('div');
-        text.className = 'wl-text';
-        const title = document.createElement('div');
-        title.className = 'wl-name';
-        title.textContent = name;
-        const body = document.createElement('div');
-        body.className = 'wl-preview';
-        body.textContent = preview;
-        text.append(title, body);
-        const close = document.createElement('button');
-        close.className = 'wl-close';
-        close.textContent = '×';
-        close.title = 'Fechar';
-        popup.append(text, close);
-
+        // Responder vira um campo: Enter envia (pela função da bolinha), Esc cancela; enquanto responde, não some
+        if (reply) reply.onclick = () => {
+            clearTimeout(hideTimer);
+            popup.querySelector('.wl-prog').remove();
+            const answer = el('input', 'wl-answer');
+            answer.placeholder = 'Responder a ' + name;
+            // o WhatsApp tem atalhos de teclado na página: a digitação não pode vazar para eles
+            for (const t of ['keydown', 'keypress', 'keyup']) answer.addEventListener(t, (e) => e.stopPropagation());
+            answer.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') return hide();
+                if (e.key !== 'Enter' || !answer.value.trim()) return;
+                window.__wlReply(name, answer.value);
+                hide();
+            });
+            reply.replaceWith(answer);
+            answer.focus();
+        };
         popup.onclick = (e) => {
+            if (e.target.closest('.wl-answer, .wl-reply')) return;
             hide();
-            if (e.target === close) return;
-            openChat(name);
+            if (!close.contains(e.target)) openChat(name);
         };
 
         popup.classList.add('wl-show');
@@ -280,7 +329,9 @@
         document.head.appendChild(style);
         const popup = document.createElement('div');
         popup.id = POPUP_ID;
+        popup.className = 'wl-pop';
         document.body.appendChild(popup);
+        window.__TAURI_INTERNALS__.invoke('lite_get').then((s) => { style = s.popup_style || 'a'; }).catch(() => {});
 
         observer = new MutationObserver(scheduleScan);
         observer.observe(document.body, { childList: true, subtree: true, characterData: true });
@@ -288,6 +339,9 @@
     }
 
     window.__wlPopup = {
+        fill,
+        show,
+        setStyle(v) { style = v; },
         destroy() {
             if (observer) observer.disconnect();
             clearTimeout(scanTimer);

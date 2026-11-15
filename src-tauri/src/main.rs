@@ -26,6 +26,8 @@ struct Settings {
     mcp_token: Mutex<String>,
     /// opções da bolinha (cor, contador, prévia, som, segundos); None = nunca salvas
     bubble: Mutex<Option<Value>>,
+    /// visual do aviso de mensagem dentro da conversa: "a" (cartão), "b" (canto) ou "c" (pílula)
+    popup_style: Mutex<String>,
 }
 
 /// Itens da bandeja que a tela de configurações também muda.
@@ -153,6 +155,14 @@ fn settings_path(app: &AppHandle) -> Option<PathBuf> {
         .map(|dir| dir.join("settings.json"))
 }
 
+fn popup_style_clean(v: &str) -> &'static str {
+    match v {
+        "b" => "b",
+        "c" => "c",
+        _ => "a",
+    }
+}
+
 fn load_settings(app: &AppHandle) -> Settings {
     let json = settings_path(app)
         .and_then(|path| fs::read_to_string(path).ok())
@@ -168,6 +178,7 @@ fn load_settings(app: &AppHandle) -> Settings {
         mcp_notify: flag("mcp_notify", true),
         mcp_token: Mutex::new(token.unwrap_or_else(mcp::new_token)),
         bubble: Mutex::new(json["bubble"].is_object().then(|| bubble_clean(&json["bubble"]))),
+        popup_style: Mutex::new(popup_style_clean(json["popup_style"].as_str().unwrap_or("")).into()),
     }
 }
 
@@ -181,6 +192,7 @@ fn save_settings(app: &AppHandle) {
         "mcp_notify": settings.mcp_notify.load(Ordering::Relaxed),
         "mcp_token": *settings.mcp_token.lock().unwrap(),
         "bubble": *settings.bubble.lock().unwrap(),
+        "popup_style": *settings.popup_style.lock().unwrap(),
     });
     let result = path
         .parent()
@@ -358,6 +370,7 @@ fn lite_state(app: &AppHandle) -> Value {
         "run_in_background": s.run_in_background.load(Ordering::Relaxed),
         "ask_download_path": s.ask_download_path.load(Ordering::Relaxed),
         "autostart": autostart(),
+        "popup_style": *s.popup_style.lock().unwrap(),
         "bubble": bubble_opts_get(app.clone())["opts"],
     })
 }
@@ -394,6 +407,13 @@ fn lite_set(app: AppHandle, key: String, on: bool) -> Value {
         mcp_listen(&app, &tray.mcp);
     }
     lite_state(&app)
+}
+
+/// Visual do aviso de mensagem dentro da conversa.
+#[tauri::command]
+fn lite_popup_style(app: AppHandle, style: String) {
+    *app.state::<Settings>().popup_style.lock().unwrap() = popup_style_clean(&style).into();
+    save_settings(&app);
 }
 
 /// Copia o comando de conexão do app de IA; a chave fica só aqui no Rust.
@@ -650,6 +670,7 @@ fn main() {
             bubble_opts_set,
             lite_get,
             lite_set,
+            lite_popup_style,
             lite_copy_command,
             lite_new_token,
             mcp::mcp_result
