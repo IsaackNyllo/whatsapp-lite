@@ -130,11 +130,14 @@
       maisAntigaDisponivel: oldest ? dia(new Date(oldest * 1000)) : null, // mais antiga que o histórico carregado alcançou
       mensagens,
     };
-    try {
+    if (avisar) try {
       window.__TAURI_INTERNALS__.invoke('bubble_message', { chat: 'IA leu ' + nome, text: payload.total + ' mensagens', avatar: null }).catch(() => {});
     } catch (e) {}
     return payload;
   }
+
+  // "Avisar quando uma IA ler" (configuração do app); vem em cada chamada do Rust
+  let avisar = true;
 
   const TOOLS = { listar_conversas, ler_mensagens };
   window.__wlMcpRun = async (tool, args) => {
@@ -142,7 +145,8 @@
     if (!f) throw new Error('Ferramenta desconhecida: ' + tool);
     return f(args || {});
   };
-  window.__wlMcp = async (id, tool, args) => {
+  window.__wlMcp = async (id, tool, args, notify) => {
+    avisar = notify !== false;
     const inv = (p) => { try { return window.__TAURI_INTERNALS__.invoke('mcp_result', p); } catch (e) {} };
     try {
       const r = await window.__wlMcpRun(tool, args);

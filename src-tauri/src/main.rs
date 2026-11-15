@@ -9,16 +9,30 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use serde_json::{json, Value};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::{DownloadEvent, NewWindowResponse};
-use tauri::{AppHandle, Manager, Url, Webview, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Manager, Url, Webview, WebviewUrl, WebviewWindowBuilder, WindowEvent, Wry};
 
 struct Settings {
     run_in_background: AtomicBool,
     ask_download_path: AtomicBool,
     mcp_enabled: AtomicBool,
-    mcp_token: String,
+    /// "Avisar quando uma IA ler": balão na bolinha a cada leitura
+    mcp_notify: AtomicBool,
+    /// trocado pela tela "Conectores de IA"; nunca vai para a página do WhatsApp
+    mcp_token: Mutex<String>,
+    /// opções da bolinha (cor, contador, prévia, som, segundos); None = nunca salvas
+    bubble: Mutex<Option<Value>>,
+}
+
+/// Itens da bandeja que a tela de configurações também muda.
+struct TrayItems {
+    background: CheckMenuItem<Wry>,
+    ask_download: CheckMenuItem<Wry>,
+    mcp: CheckMenuItem<Wry>,
 }
 
 const DEFAULT_PROXY: Option<&str> = None;
@@ -30,6 +44,7 @@ const MESSAGE_POPUP_SCRIPT: &str = include_str!("../message_popup.js");
 const TITLEBAR_SCRIPT: &str = include_str!("../titlebar.js");
 const BUBBLE_FEED_SCRIPT: &str = include_str!("../bubble_feed.js");
 const MCP_TOOLS_SCRIPT: &str = include_str!("../mcp_tools.js");
+const LITE_SETTINGS_SCRIPT: &str = include_str!("../lite_settings.js");
 
 const WHATSAPP_ORIGIN: &str = "https://web.whatsapp.com/";
 
@@ -150,18 +165,22 @@ fn load_settings(app: &AppHandle) -> Settings {
         run_in_background: flag("run_in_background", true),
         ask_download_path: flag("ask_download_path", true),
         mcp_enabled: flag("mcp_enabled", false),
-        mcp_token: token.unwrap_or_else(mcp::new_token),
+        mcp_notify: flag("mcp_notify", true),
+        mcp_token: Mutex::new(token.unwrap_or_else(mcp::new_token)),
+        bubble: Mutex::new(json["bubble"].is_object().then(|| bubble_clean(&json["bubble"]))),
     }
 }
 
 fn save_settings(app: &AppHandle) {
     let Some(path) = settings_path(app) else { return };
     let settings = app.state::<Settings>();
-    let json = serde_json::json!({
+    let json = json!({
         "run_in_background": settings.run_in_background.load(Ordering::Relaxed),
         "ask_download_path": settings.ask_download_path.load(Ordering::Relaxed),
         "mcp_enabled": settings.mcp_enabled.load(Ordering::Relaxed),
-        "mcp_token": settings.mcp_token,
+        "mcp_notify": settings.mcp_notify.load(Ordering::Relaxed),
+        "mcp_token": *settings.mcp_token.lock().unwrap(),
+        "bubble": *settings.bubble.lock().unwrap(),
     });
     let result = path
         .parent()
@@ -267,6 +286,136 @@ fn bubble_unread(app: AppHandle, count: u32) {
     eval_in(&app, "bubble", format!("window.wlUnread && window.wlUnread({count})"));
 }
 
+/// Opções da bolinha só com as chaves conhecidas; o que faltar ou vier errado vira o padrão.
+fn bubble_clean(v: &Value) -> Value {
+    let flag = |k: &str| v[k].as_bool().unwrap_or(true);
+    // cor vai para o CSS da bolinha: só "#rrggbb" ou "hsl(h s% l%)"
+    let color = v["color"]
+        .as_str()
+        .filter(|c| c.len() <= 32 && c.chars().all(|ch| ch.is_ascii_alphanumeric() || " #(),.%".contains(ch)))
+        .unwrap_or("#ffffff");
+    json!({
+        "color": color,
+        "count": flag("count"),
+        "preview": flag("preview"),
+        "sound": flag("sound"),
+        "seconds": v["seconds"].as_u64().unwrap_or(5).clamp(1, 60),
+    })
+}
+
+/// `saved: false` = o app ainda não tem opções (a bolinha migra as do localStorage dela).
+#[tauri::command]
+fn bubble_opts_get(app: AppHandle) -> Value {
+    let saved = app.state::<Settings>().bubble.lock().unwrap().clone();
+    json!({ "saved": saved.is_some(), "opts": bubble_clean(saved.as_ref().unwrap_or(&Value::Null)) })
+}
+
+/// Grava as opções (da tela de configurações ou do painel da bolinha) e avisa a bolinha aberta.
+#[tauri::command]
+fn bubble_opts_set(app: AppHandle, opts: Value) {
+    let clean = bubble_clean(&opts);
+    *app.state::<Settings>().bubble.lock().unwrap() = Some(clean.clone());
+    save_settings(&app);
+    eval_in(&app, "bubble", format!("window.wlOpts && window.wlOpts({clean})"));
+}
+
+// "Iniciar com o Windows": valor no Run do usuário apontando para este exe com --hidden
+const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+const RUN_VALUE: &str = "WhatsApp Lite";
+const HIDDEN_ARG: &str = "--hidden";
+
+fn autostart() -> bool {
+    mcp::quiet("reg")
+        .args(["query", RUN_KEY, "/v", RUN_VALUE])
+        .output()
+        .is_ok_and(|out| out.status.success())
+}
+
+fn set_autostart(on: bool) -> std::io::Result<()> {
+    let mut cmd = mcp::quiet("reg");
+    if on {
+        let exe = env::current_exe()?;
+        cmd.args(["add", RUN_KEY, "/v", RUN_VALUE, "/t", "REG_SZ", "/f", "/d"])
+            .arg(format!("\"{}\" {HIDDEN_ARG}", exe.display()));
+    } else {
+        cmd.args(["delete", RUN_KEY, "/v", RUN_VALUE, "/f"]);
+    }
+    let out = cmd.output()?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(String::from_utf8_lossy(&out.stderr).into_owned()))
+    }
+}
+
+/// O que a tela "WhatsApp Lite" mostra. Sem o token.
+fn lite_state(app: &AppHandle) -> Value {
+    let s = app.state::<Settings>();
+    json!({
+        "mcp_enabled": s.mcp_enabled.load(Ordering::Relaxed),
+        "mcp_listening": mcp::listening(app),
+        "mcp_notify": s.mcp_notify.load(Ordering::Relaxed),
+        "run_in_background": s.run_in_background.load(Ordering::Relaxed),
+        "ask_download_path": s.ask_download_path.load(Ordering::Relaxed),
+        "autostart": autostart(),
+        "bubble": bubble_opts_get(app.clone())["opts"],
+    })
+}
+
+#[tauri::command]
+fn lite_get(app: AppHandle) -> Value {
+    lite_state(&app)
+}
+
+/// Liga/desliga uma opção pela tela; a bandeja acompanha.
+#[tauri::command]
+fn lite_set(app: AppHandle, key: String, on: bool) -> Value {
+    let s = app.state::<Settings>();
+    let tray = app.state::<TrayItems>();
+    let (flag, item) = match key.as_str() {
+        "mcp_enabled" => (&s.mcp_enabled, Some(&tray.mcp)),
+        "run_in_background" => (&s.run_in_background, Some(&tray.background)),
+        "ask_download_path" => (&s.ask_download_path, Some(&tray.ask_download)),
+        "mcp_notify" => (&s.mcp_notify, None),
+        "autostart" => {
+            if let Err(e) = set_autostart(on) {
+                eprintln!("Erro ao mudar o início com o Windows: {}", e);
+            }
+            return lite_state(&app);
+        }
+        _ => return lite_state(&app),
+    };
+    flag.store(on, Ordering::Relaxed);
+    save_settings(&app);
+    if let Some(item) = item {
+        let _ = item.set_checked(on);
+    }
+    if on && key == "mcp_enabled" {
+        mcp_listen(&app, &tray.mcp);
+    }
+    lite_state(&app)
+}
+
+/// Copia o comando de conexão do app de IA; a chave fica só aqui no Rust.
+#[tauri::command]
+fn lite_copy_command(app: AppHandle, client: String) -> bool {
+    let token = app.state::<Settings>().mcp_token.lock().unwrap().clone();
+    let Some(text) = mcp::connect_command(&client, &token) else { return false };
+    mcp::copy_to_clipboard(&text).map_err(|e| eprintln!("Erro ao copiar o comando: {}", e)).is_ok()
+}
+
+/// Nova chave: todo app conectado passa a receber 401.
+#[tauri::command]
+fn lite_new_token(app: AppHandle) -> bool {
+    let token = mcp::new_token();
+    if token.is_empty() {
+        return false;
+    }
+    *app.state::<Settings>().mcp_token.lock().unwrap() = token;
+    save_settings(&app);
+    true
+}
+
 // Na bandeja o WebView2 para de desenhar e libera memória; o JavaScript
 // continua rodando, então mensagens e notificações seguem chegando.
 fn set_in_tray(window: &tauri::WebviewWindow, in_tray: bool) {
@@ -342,6 +491,11 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     if settings.mcp_enabled.load(Ordering::Relaxed) {
         mcp_listen(app.handle(), &mcp_on);
     }
+    app.manage(TrayItems {
+        background: background.clone(),
+        ask_download: ask_download.clone(),
+        mcp: mcp_on.clone(),
+    });
 
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("WhatsApp Lite")
@@ -353,10 +507,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                 "open" => return show_main_window(app),
                 "quit" => return app.exit(0),
                 "mcp_copy" => {
-                    let command = mcp::connect_command(&app.state::<Settings>().mcp_token);
-                    if let Err(e) = mcp::copy_to_clipboard(&command) {
-                        eprintln!("Erro ao copiar o comando do MCP: {}", e);
-                    }
+                    lite_copy_command(app.clone(), "claude".into());
                     return;
                 }
                 "mcp" => (&mcp_on, &app.state::<Settings>().mcp_enabled),
@@ -371,6 +522,8 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             if on && event.id() == "mcp" {
                 mcp_listen(app, item);
             }
+            // a tela "WhatsApp Lite", se aberta, mostra o mesmo valor
+            eval_in(app, "main", "window.__wlLite && window.__wlLite.refresh()".into());
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
@@ -428,7 +581,10 @@ fn setup_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>>
         .first()
         .ok_or("Falha ao obter configuração da janela principal")?;
 
+    // iniciado pelo Windows: abre direto na bandeja
+    let hidden = env::args().any(|a| a == HIDDEN_ARG);
     let window = WebviewWindowBuilder::from_config(app, config)?
+        .visible(!hidden)
         .initialization_script(AD_REMOVAL_SCRIPT)
         .initialization_script(MOBILE_LAYOUT_SCRIPT)
         .initialization_script(COMPACT_CHAT_SCRIPT)
@@ -436,6 +592,7 @@ fn setup_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>>
         .initialization_script(TITLEBAR_SCRIPT)
         .initialization_script(BUBBLE_FEED_SCRIPT)
         .initialization_script(MCP_TOOLS_SCRIPT)
+        .initialization_script(LITE_SETTINGS_SCRIPT)
         .on_new_window(|url, _features| {
             open_in_browser(&url);
             NewWindowResponse::Deny
@@ -447,6 +604,9 @@ fn setup_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>>
 
     #[cfg(windows)]
     allow_notifications(&window)?;
+    if hidden {
+        set_in_tray(&window, true);
+    }
 
     Ok(())
 }
@@ -486,6 +646,12 @@ fn main() {
             bubble_ready,
             bubble_reply,
             bubble_unread,
+            bubble_opts_get,
+            bubble_opts_set,
+            lite_get,
+            lite_set,
+            lite_copy_command,
+            lite_new_token,
             mcp::mcp_result
         ])
         .on_window_event(|window, event| {

@@ -8,8 +8,8 @@ const $ = (id) => document.getElementById(id);
 const SIZE = { ball: [76, 76], card: [340, 104], reply: [340, 138], opts: [300, 340] };
 const DEFAULTS = { color: '#ffffff', count: true, preview: true, sound: true, seconds: 5 };
 
+// as opções ficam no settings.json do app (a tela "WhatsApp Lite" também muda)
 let opts = { ...DEFAULTS };
-try { opts = { ...DEFAULTS, ...JSON.parse(localStorage.getItem('wl-bubble') || '{}') }; } catch {}
 
 let unread = 0;
 let cardChat = null;
@@ -127,17 +127,19 @@ $('answer').addEventListener('keydown', (e) => {
     hideCard();
 });
 
-// opções no botão direito; ficam salvas nesta janela
+// opções no botão direito; gravadas no app
 const form = $('opts');
 const PRESETS = ['#ffffff', '#25d366', '#53bdeb', '#ffd279', '#ff7a7a', '#c9a7ff'];
 $('swatches').innerHTML = PRESETS.map((c) =>
     `<button class="sw" style="--s:${c}" data-c="${c}" aria-pressed="false" aria-label="Cor ${c}"></button>`).join('');
 
 function save() {
-    try { localStorage.setItem('wl-bubble', JSON.stringify(opts)); } catch {}
+    invoke('bubble_opts_set', { opts });
     apply();
     paintOpts();
 }
+// o app manda as opções quando a tela de configurações muda alguma
+window.wlOpts = (o) => { opts = { ...DEFAULTS, ...o }; apply(); paintOpts(); };
 function paintOpts() {
     form.style.setProperty('--thumb', opts.color);
     $('hue').style.setProperty('--thumb', opts.color);
@@ -173,5 +175,15 @@ $('ball').addEventListener('contextmenu', (e) => {
 $('done').addEventListener('click', () => { form.classList.remove('on'); resize('ball'); });
 
 apply();
+
+// migração: opções antigas no localStorage desta janela vão para o app uma vez
+invoke('bubble_opts_get').then(({ saved, opts: fromApp }) => {
+    let old = null;
+    try { old = JSON.parse(localStorage.getItem('wl-bubble')); } catch {}
+    if (!saved && old) { opts = { ...DEFAULTS, ...old }; save(); return; }
+    window.wlOpts(fromApp);
+    // o app já tem as opções: a cópia antiga não serve mais
+    try { localStorage.removeItem('wl-bubble'); } catch {}
+}).catch(() => {});
 
 invoke('bubble_ready');

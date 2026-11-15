@@ -62,20 +62,40 @@ pub fn new_token() -> String {
     buf.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-pub fn connect_command(token: &str) -> String {
-    format!(
-        "claude mcp add --transport http --scope user whatsapp http://127.0.0.1:{PORT}/mcp --header \"Authorization: Bearer {token}\""
-    )
+/// Comando (ou trecho de configuração, no Codex) para ligar o app de IA ao servidor.
+pub fn connect_command(client: &str, token: &str) -> Option<String> {
+    let url = format!("http://127.0.0.1:{PORT}/mcp");
+    let header = format!("Authorization: Bearer {token}");
+    Some(match client {
+        "claude" => format!("claude mcp add --transport http --scope user whatsapp {url} --header \"{header}\""),
+        // geminicli.com/docs/tools/mcp-server
+        "gemini" => format!("gemini mcp add --scope user --transport http --header \"{header}\" whatsapp {url}"),
+        // agy mcp add --help; grava em ~/.gemini/config/mcp_config.json
+        "antigravity" => format!("agy mcp add --header \"{header}\" whatsapp {url}"),
+        // learn.chatgpt.com/docs/extend/mcp: vai em ~/.codex/config.toml
+        "codex" => format!("[mcp_servers.whatsapp]\nurl = \"{url}\"\nhttp_headers = {{ \"Authorization\" = \"Bearer {token}\" }}\n"),
+        _ => return None,
+    })
 }
 
-pub fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
-    let mut cmd = std::process::Command::new("clip.exe");
-    cmd.stdin(std::process::Stdio::piped());
+/// Programa de console sem a janela preta piscando.
+pub fn quiet(program: &str) -> std::process::Command {
+    let mut cmd = std::process::Command::new(program);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: sem janela de console piscando
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
+    cmd
+}
+
+pub fn listening(app: &AppHandle) -> bool {
+    app.state::<Bridge>().listening.load(Ordering::Relaxed)
+}
+
+pub fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
+    let mut cmd = quiet("clip.exe");
+    cmd.stdin(std::process::Stdio::piped());
     let mut child = cmd.spawn()?;
     if let Some(mut stdin) = child.stdin.take() {
         stdin.write_all(text.as_bytes())?;
@@ -108,9 +128,10 @@ fn serve(app: &AppHandle, mut stream: TcpStream) {
     let (status, body) = match read_request(&stream) {
         Ok(req) => {
             let settings = app.state::<crate::Settings>();
+            let token = settings.mcp_token.lock().unwrap().clone();
             handle(
                 &req,
-                &settings.mcp_token,
+                &token,
                 settings.mcp_enabled.load(Ordering::Relaxed),
                 |tool, args| call_tool(app, tool, args),
             )
@@ -177,7 +198,9 @@ fn call_tool(app: &AppHandle, tool: &str, args: &Value) -> Result<String, String
     let (tx, rx) = channel();
     bridge.pending.lock().unwrap().insert(id, tx);
     let tool = serde_json::to_string(tool).unwrap_or_default();
-    crate::eval_in(app, "main", format!("window.__wlMcp && window.__wlMcp({id}, {tool}, {args})"));
+    // avisar = a bolinha mostra "IA leu ..." (opção "Avisar quando uma IA ler")
+    let notify = app.state::<crate::Settings>().mcp_notify.load(Ordering::Relaxed);
+    crate::eval_in(app, "main", format!("window.__wlMcp && window.__wlMcp({id}, {tool}, {args}, {notify})"));
     let answer = rx.recv_timeout(TOOL_TIMEOUT);
     bridge.pending.lock().unwrap().remove(&id);
     answer.unwrap_or_else(|_| Err("WhatsApp não respondeu a tempo".into()))
@@ -361,6 +384,12 @@ mod tests {
 
         let (a, b) = (new_token(), new_token());
         assert!(a.len() == 64 && a != b && a.bytes().all(|c| c.is_ascii_hexdigit()));
+
+        for client in ["claude", "gemini", "antigravity", "codex"] {
+            let text = connect_command(client, "tok123").unwrap();
+            assert!(text.contains("http://127.0.0.1:47800/mcp") && text.contains("Bearer tok123"), "{client}");
+        }
+        assert!(connect_command("outro", "tok123").is_none());
     }
 
     #[test]
