@@ -54,7 +54,8 @@
             rows.set(name.getAttribute('title'), {
                 row,
                 count: badge ? parseInt(badge.textContent, 10) || 1 : 0,
-                muted: !!row.querySelector('[data-icon="muted"], [data-testid="muted"]'),
+                // testid medido na página real (não depende do idioma)
+                muted: !!row.querySelector('[data-testid^="mute-notifications"]'),
                 open: row.matches('[aria-selected="true"]') || !!row.querySelector('[aria-selected="true"]'),
             });
         }
