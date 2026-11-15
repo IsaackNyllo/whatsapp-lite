@@ -199,6 +199,8 @@
             if (!note) return;
             if (getComputedStyle(note).position === 'static') note.style.position = 'relative';
             note.style.paddingRight = '84px';
+            // o aviso de uma linha (janela larga) precisa ser mais alto que o botão
+            note.style.paddingTop = note.style.paddingBottom = '20px';
             btn = document.createElement('button');
             btn.id = 'wl-arch-btn';
             btn.title = 'Selecionar grupos que avisam';
