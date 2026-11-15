@@ -8,6 +8,11 @@
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     let counts = null;
     let lastUnread = -1;
+    // contagem de cada conversa quando o balão apareceu
+    const shown = new Map();
+    // conversas respondidas pela bolinha: mensagens já vistas, que saem da soma
+    const dismissed = new Map();
+    window.__wlFeed = { shown, dismissed };
 
     // no modo bolinha quem avisa é o balão dela, não a notificação do Windows
     window.__wlBubbleMode = false;
@@ -38,7 +43,10 @@
         // conta conversas, não mensagens.
         // ponytail: só vê as linhas que a lista já desenhou; conversas muito abaixo não entram.
         let unread = 0;
-        for (const info of rows.values()) if (!info.muted) unread += info.count;
+        for (const [name, info] of rows) {
+            if (info.count === 0) dismissed.delete(name);
+            if (!info.muted) unread += Math.max(0, info.count - (dismissed.get(name) || 0));
+        }
         if (unread !== lastUnread) {
             lastUnread = unread;
             invoke('bubble_unread', { count: unread });
@@ -50,6 +58,7 @@
             for (const [name, info] of rows) {
                 if (info.muted || info.count <= (counts.get(name) || 0)) continue;
                 const img = info.row.querySelector('img');
+                shown.set(name, info.count);
                 invoke('bubble_message', {
                     chat: name,
                     text: chats.previewOf(info.row),
@@ -72,6 +81,9 @@
     // abre a conversa, confere que é ela mesma e envia; nunca envia para outra conversa
     window.__wlReply = async (name, text) => {
         if (!window.__wlChats || !text.trim()) return;
+        // responder só dá a conversa por vista se havia 1 mensagem (a do balão) e nada novo chegou
+        const row = window.__wlChats.readRows().get(name);
+        const seen = row && row.count === 1 && shown.get(name) === 1;
         if (openTitle() !== name) window.__wlChats.openChat(name);
         for (let i = 0; i < 30 && openTitle() !== name; i++) await sleep(100);
         if (openTitle() !== name) return;
@@ -81,7 +93,10 @@
         document.execCommand('insertText', false, text);
         await sleep(150);
         const send = document.querySelector('#main footer button[aria-label="Enviar"]');
-        if (send) send.click();
+        if (send) {
+            send.click();
+            if (seen) dismissed.set(name, 1);
+        }
     };
 
     setInterval(tick, 1000);
