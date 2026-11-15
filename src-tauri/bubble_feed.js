@@ -34,9 +34,11 @@
         const rows = chats.readRows();
         if (!rows.size) return;
 
-        // o título vem como "(3) WhatsApp" quando há não lidas
-        const m = document.title.match(/^\((\d+)\)/);
-        const unread = m ? parseInt(m[1], 10) : 0;
+        // soma as mensagens não lidas das conversas não silenciadas. O título "(1) WhatsApp"
+        // conta conversas, não mensagens.
+        // ponytail: só vê as linhas que a lista já desenhou; conversas muito abaixo não entram.
+        let unread = 0;
+        for (const info of rows.values()) if (!info.muted) unread += info.count;
         if (unread !== lastUnread) {
             lastUnread = unread;
             invoke('bubble_unread', { count: unread });
