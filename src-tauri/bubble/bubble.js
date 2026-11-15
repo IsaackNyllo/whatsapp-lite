@@ -5,7 +5,7 @@ const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args);
 const $ = (id) => document.getElementById(id);
 
 // tamanhos da janela em cada estado
-const SIZE = { ball: [76, 76], card: [340, 104], reply: [340, 138], opts: [300, 232] };
+const SIZE = { ball: [76, 76], card: [340, 104], reply: [340, 138], opts: [300, 340] };
 const DEFAULTS = { color: '#ffffff', count: true, preview: true, sound: true, seconds: 5 };
 
 let opts = { ...DEFAULTS };
@@ -129,28 +129,46 @@ $('answer').addEventListener('keydown', (e) => {
 
 // opções no botão direito; ficam salvas nesta janela
 const form = $('opts');
+const PRESETS = ['#ffffff', '#25d366', '#53bdeb', '#ffd279', '#ff7a7a', '#c9a7ff'];
+$('swatches').innerHTML = PRESETS.map((c) =>
+    `<button class="sw" style="--s:${c}" data-c="${c}" aria-pressed="false" aria-label="Cor ${c}"></button>`).join('');
+
+function save() {
+    try { localStorage.setItem('wl-bubble', JSON.stringify(opts)); } catch {}
+    apply();
+    paintOpts();
+}
+function paintOpts() {
+    form.style.setProperty('--thumb', opts.color);
+    $('hue').style.setProperty('--thumb', opts.color);
+    const hue = /^hsl\((\d+)/.exec(opts.color);
+    if (hue) $('hue').value = hue[1];
+    form.querySelectorAll('.sw').forEach((b) => b.setAttribute('aria-pressed', b.dataset.c === opts.color));
+    form.querySelectorAll('.switch').forEach((b) => b.setAttribute('aria-checked', !!opts[b.dataset.k]));
+    $('secBox').classList.toggle('dim', !opts.preview);
+    $('sec').value = opts.seconds;
+    $('sec').style.setProperty('--p', ((opts.seconds - 1) / 59 * 100) + '%');
+    $('secVal').textContent = opts.seconds + ' s';
+}
+$('swatches').addEventListener('click', (e) => {
+    const b = e.target.closest('.sw');
+    if (b) { opts.color = b.dataset.c; save(); }
+});
+$('hue').addEventListener('input', (e) => { opts.color = `hsl(${e.target.value} 90% 60%)`; save(); });
+form.querySelectorAll('.switch').forEach((b) => b.addEventListener('click', () => {
+    const k = b.dataset.k;
+    opts[k] = !opts[k];
+    if (k === 'sound' && opts.sound) ding();
+    save();
+}));
+$('sec').addEventListener('input', (e) => { opts.seconds = Math.min(60, Math.max(1, parseInt(e.target.value, 10) || DEFAULTS.seconds)); save(); });
+
 $('ball').addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    form.color.value = opts.color;
-    form.count.checked = opts.count;
-    form.preview.checked = opts.preview;
-    form.sound.checked = opts.sound;
-    form.seconds.value = opts.seconds;
+    paintOpts();
     $('card').classList.remove('on');
     form.classList.add('on');
     resize('opts');
-});
-form.addEventListener('change', (e) => { if (e.target === form.sound && form.sound.checked) ding(); });
-form.addEventListener('input', () => {
-    opts = {
-        color: form.color.value,
-        count: form.count.checked,
-        preview: form.preview.checked,
-        sound: form.sound.checked,
-        seconds: Math.min(60, Math.max(1, parseInt(form.seconds.value, 10) || DEFAULTS.seconds)),
-    };
-    try { localStorage.setItem('wl-bubble', JSON.stringify(opts)); } catch {}
-    apply();
 });
 $('done').addEventListener('click', () => { form.classList.remove('on'); resize('ball'); });
 

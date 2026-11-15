@@ -19,14 +19,22 @@
   <button id="reply">Responder</button>
   <input id="answer" placeholder="Escreva e aperte Enter" autocomplete="off">
 </div>
-<form id="opts">
-  <label>Cor <input type="color" name="color"></label>
-  <label><input type="checkbox" name="count"> Contador de não lidas</label>
-  <label><input type="checkbox" name="preview"> Prévia das mensagens</label>
-  <label><input type="checkbox" name="sound"> Som ao avisar</label>
-  <label>Prévia por <input type="number" name="seconds" min="1" max="60"> s</label>
+<div id="opts">
+  <div class="title">Opções da bolinha</div>
+  <div>
+    <div class="label">Cor da bolinha</div>
+    <input id="hue" type="range" min="0" max="360" value="140" aria-label="Escolher cor">
+    <div class="swatches" id="swatches"></div>
+  </div>
+  <div class="row"><span>Contador de não lidas</span><button class="switch" role="switch" data-k="count" aria-label="Contador de não lidas"></button></div>
+  <div class="row"><span>Prévia das mensagens</span><button class="switch" role="switch" data-k="preview" aria-label="Prévia das mensagens"></button></div>
+  <div class="row"><span>Som ao avisar</span><button class="switch" role="switch" data-k="sound" aria-label="Som ao avisar"></button></div>
+  <div id="secBox">
+    <div class="label"><span>Prévia na tela por</span><span class="val" id="secVal"></span></div>
+    <input id="sec" type="range" min="1" max="60" aria-label="Segundos da prévia">
+  </div>
   <button type="button" id="done">Pronto</button>
-</form>
+</div>
 <script src="bubble.js"></script>
 </body>
 </html>
