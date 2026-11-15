@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::{DownloadEvent, NewWindowResponse};
-use tauri::{AppHandle, Manager, Url, Webview, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Manager, Url, Webview, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 struct Settings {
     run_in_background: AtomicBool,
@@ -24,6 +24,7 @@ const MOBILE_LAYOUT_SCRIPT: &str = include_str!("../mobile_layout.js");
 const COMPACT_CHAT_SCRIPT: &str = include_str!("../compact_chat.js");
 const MESSAGE_POPUP_SCRIPT: &str = include_str!("../message_popup.js");
 const TITLEBAR_SCRIPT: &str = include_str!("../titlebar.js");
+const BUBBLE_FEED_SCRIPT: &str = include_str!("../bubble_feed.js");
 
 const WHATSAPP_ORIGIN: &str = "https://web.whatsapp.com/";
 
@@ -160,12 +161,71 @@ fn save_settings(app: &AppHandle) {
 }
 
 fn show_main_window(app: &AppHandle) {
+    if let Some(bubble) = app.get_webview_window("bubble") {
+        let _ = bubble.hide();
+    }
     if let Some(window) = app.get_webview_window("main") {
         set_in_tray(&window, false);
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+// Bolinha: janela pequena, sempre por cima, com a página de src-tauri/bubble/.
+fn setup_bubble_window(app: &tauri::App) -> tauri::Result<()> {
+    WebviewWindowBuilder::new(app, "bubble", WebviewUrl::App("index.html".into()))
+        .title("WhatsApp Lite")
+        .inner_size(76.0, 76.0)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .resizable(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .build()?;
+    Ok(())
+}
+
+fn eval_in(app: &AppHandle, label: &str, js: String) {
+    if let Some(window) = app.get_webview_window(label) {
+        let _ = window.eval(js);
+    }
+}
+
+#[tauri::command]
+fn bubble_enter(app: AppHandle) {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.hide();
+        set_in_tray(&main, true);
+    }
+    if let Some(bubble) = app.get_webview_window("bubble") {
+        let _ = bubble.show();
+    }
+}
+
+#[tauri::command]
+fn bubble_open(app: AppHandle, chat: Option<String>) {
+    if let Some(bubble) = app.get_webview_window("bubble") {
+        let _ = bubble.hide();
+    }
+    show_main_window(&app);
+    if let Some(chat) = chat {
+        let name = serde_json::to_string(&chat).unwrap_or_default();
+        eval_in(&app, "main", format!("window.__wlOpenChat && window.__wlOpenChat({name})"));
+    }
+}
+
+#[tauri::command]
+fn bubble_message(app: AppHandle, chat: String, text: String, avatar: Option<String>) {
+    let payload = serde_json::json!({ "chat": chat, "text": text, "avatar": avatar });
+    eval_in(&app, "bubble", format!("window.wlMessage && window.wlMessage({payload})"));
+}
+
+#[tauri::command]
+fn bubble_unread(app: AppHandle, count: u32) {
+    eval_in(&app, "bubble", format!("window.wlUnread && window.wlUnread({count})"));
 }
 
 // Na bandeja o WebView2 para de desenhar e libera memória; o JavaScript
@@ -294,6 +354,7 @@ fn setup_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>>
         .initialization_script(COMPACT_CHAT_SCRIPT)
         .initialization_script(MESSAGE_POPUP_SCRIPT)
         .initialization_script(TITLEBAR_SCRIPT)
+        .initialization_script(BUBBLE_FEED_SCRIPT)
         .on_new_window(|url, _features| {
             open_in_browser(&url);
             NewWindowResponse::Deny
@@ -323,9 +384,16 @@ fn main() {
                 eprintln!("Erro na inicialização: {}", e);
                 e
             })?;
+            setup_bubble_window(app)?;
             setup_tray(app)?;
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            bubble_enter,
+            bubble_open,
+            bubble_message,
+            bubble_unread
+        ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let settings = window.app_handle().state::<Settings>();
@@ -335,6 +403,9 @@ fn main() {
                     if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
                         set_in_tray(&webview, true);
                     }
+                } else if window.label() == "main" {
+                    // a bolinha é outra janela e manteria o app aberto
+                    window.app_handle().exit(0);
                 }
             }
         })

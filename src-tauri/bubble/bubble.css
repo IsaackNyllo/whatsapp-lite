@@ -1,0 +1,32 @@
+html, body { margin: 0; background: transparent; overflow: hidden; user-select: none;
+             font: 13px/1.3 "Segoe UI", sans-serif; color: #e9edef; }
+
+#ball { position: fixed; top: 10px; left: 10px; width: 56px; height: 56px; border-radius: 50%;
+        background: var(--color, #ffffff); box-shadow: 0 2px 8px rgba(0,0,0,.45);
+        display: flex; align-items: center; justify-content: center; cursor: pointer; }
+#ball svg { width: 26px; height: 26px; fill: none; stroke: #111b21; stroke-width: 2;
+            stroke-linejoin: round; }
+#badge { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px;
+         box-sizing: border-box; border-radius: 10px; background: #25d366; color: #111b21;
+         font-weight: 700; font-size: 12px; line-height: 20px; text-align: center; display: none; }
+#badge.on { display: block; }
+
+#card { position: fixed; top: 10px; left: 76px; right: 8px; height: 56px; box-sizing: border-box;
+        display: none; align-items: center; gap: 10px; padding: 0 8px 0 10px; border-radius: 12px;
+        background: #202c33; box-shadow: 0 2px 8px rgba(0,0,0,.45); cursor: pointer; }
+#card.on { display: flex; }
+#avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: none; }
+#avatar:not([src]) { display: none; }
+#card .text { min-width: 0; flex: 1; }
+#name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#msg { color: #aebac1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#close { border: none; background: none; color: #aebac1; font-size: 18px; cursor: pointer; }
+
+#opts { position: fixed; top: 10px; left: 76px; right: 8px; bottom: 8px; margin: 0; padding: 10px;
+        box-sizing: border-box; border-radius: 12px; background: #202c33;
+        box-shadow: 0 2px 8px rgba(0,0,0,.45); display: none; flex-direction: column; gap: 8px; }
+#opts.on { display: flex; }
+#opts input[type=number] { width: 48px; }
+#opts input[type=color] { vertical-align: middle; }
+#done { margin-top: auto; align-self: flex-end; padding: 4px 14px; border: none; border-radius: 6px;
+        background: #25d366; color: #111b21; font-weight: 600; cursor: pointer; }

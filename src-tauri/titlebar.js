@@ -1,5 +1,5 @@
 // Barra de título própria (a nativa fica escondida em tauri.conf.json):
-// alfinete (fixar por cima), modo celular, minimizar, maximizar e fechar.
+// alfinete (fixar por cima), modo celular, bolinha, minimizar, maximizar e fechar.
 (function () {
     'use strict';
     if (window.top !== window) return;
@@ -40,6 +40,7 @@
     // ícones Lucide (licença ISC)
     const PIN = '<svg viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>';
     const PHONE = '<svg viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></svg>';
+    const BALL = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>';
     const BACK = '<svg viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>';
     // tamanho do modo celular; o tamanho anterior volta ao sair
     const MINI = { width: 400, height: 760 };
@@ -95,6 +96,7 @@
             title,
             pin,
             button('mini', PHONE, 'Modo celular', (e) => toggleMini(e.currentTarget)),
+            button('', BALL, 'Virar bolinha', () => window.__TAURI_INTERNALS__.invoke('bubble_enter')),
             button('', '—', 'Minimizar', () => call('minimize')),
             button('', '☐', 'Maximizar', () => call('toggle_maximize')),
             button('x', '✕', 'Fechar', () => call('close')),

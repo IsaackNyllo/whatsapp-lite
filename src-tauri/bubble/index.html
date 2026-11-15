@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Bolinha</title>
+<link rel="stylesheet" href="bubble.css">
+</head>
+<body>
+<div id="ball" title="Clique para abrir · arraste para mover · botão direito: opções">
+  <svg viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+  <span id="badge"></span>
+</div>
+<div id="card">
+  <img id="avatar" alt="">
+  <div class="text"><div id="name"></div><div id="msg"></div></div>
+  <button id="close" title="Fechar">×</button>
+</div>
+<form id="opts">
+  <label>Cor <input type="color" name="color"></label>
+  <label><input type="checkbox" name="count"> Contador de não lidas</label>
+  <label><input type="checkbox" name="preview"> Prévia das mensagens</label>
+  <label>Prévia por <input type="number" name="seconds" min="1" max="60"> s</label>
+  <button type="button" id="done">Pronto</button>
+</form>
+<script src="bubble.js"></script>
+</body>
+</html>

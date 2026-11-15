@@ -88,12 +88,31 @@
         counts = new Map([...rows].map(([name, info]) => [name, info.count]));
     }
 
+    function previewOf(row) {
+        const status = row.querySelector('[data-testid="last-msg-status"]');
+        return (status && (status.getAttribute('title')
+            || (status.querySelector('span[dir]') || {}).textContent)) || 'Nova mensagem';
+    }
+
+    // o row muda de elemento quando a lista re-renderiza
+    function openChat(name) {
+        const current = readRows().get(name);
+        // o WhatsApp abre a conversa pelos eventos de mouse no nome; click() na célula não abre
+        const target = current && current.row.querySelector('[data-testid="cell-frame-title"] span[title]');
+        if (!target) return;
+        const init = { bubbles: true, cancelable: true, view: window };
+        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+            target.dispatchEvent(new MouseEvent(type, init));
+        }
+    }
+
+    // usado pela bolinha (bubble_feed.js)
+    window.__wlChats = { readRows, previewOf, openChat };
+
     function show(name, info) {
         const popup = document.getElementById(POPUP_ID);
         if (!popup) return;
-        const status = info.row.querySelector('[data-testid="last-msg-status"]');
-        const preview = status && (status.getAttribute('title')
-            || (status.querySelector('span[dir]') || {}).textContent);
+        const preview = previewOf(info.row);
         const avatar = info.row.querySelector('img');
 
         popup.replaceChildren();
@@ -109,7 +128,7 @@
         title.textContent = name;
         const body = document.createElement('div');
         body.className = 'wl-preview';
-        body.textContent = preview || 'Nova mensagem';
+        body.textContent = preview;
         text.append(title, body);
         const close = document.createElement('button');
         close.className = 'wl-close';
@@ -120,10 +139,7 @@
         popup.onclick = (e) => {
             hide();
             if (e.target === close) return;
-            // o row muda de elemento quando a lista re-renderiza
-            const current = readRows().get(name);
-            const cell = current && current.row.querySelector('[role="gridcell"][tabindex]');
-            if (cell) cell.click();
+            openChat(name);
         };
 
         popup.classList.add('wl-show');

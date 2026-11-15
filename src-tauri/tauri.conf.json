@@ -5,6 +5,7 @@
   "identifier": "com.whatsapp-lite.desktop",
   "build": {
     "beforeBuildCommand": "",
+    "frontendDist": "bubble",
     "beforeDevCommand": ""
   },
   "bundle": {
