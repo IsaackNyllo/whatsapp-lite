@@ -43,11 +43,10 @@
     let hideTimer = null;
     let started = false;
 
-    function readRows() {
+    function readRows(pane = document.getElementById('pane-side'), sel = '[role="row"]') {
         const rows = new Map();
-        const pane = document.getElementById('pane-side');
         if (!pane) return rows;
-        for (const row of pane.querySelectorAll('[role="row"]')) {
+        for (const row of pane.querySelectorAll(sel)) {
             const name = row.querySelector('[data-testid="cell-frame-title"] span[title]');
             if (!name) continue;
             const badge = row.querySelector('[data-testid="icon-unread-count"]');
@@ -73,6 +72,7 @@
 
     function scan() {
         scanTimer = null;
+        decorateArchived();
         const rows = readRows();
         if (started && inConversation()) {
             // a conversa aberta chega a ganhar o contador antes de ser marcada como lida
@@ -96,10 +96,9 @@
     }
 
     // o row muda de elemento quando a lista re-renderiza
-    function openChat(name) {
-        const current = readRows().get(name);
+    function press(row) {
         // o WhatsApp abre a conversa pelos eventos de mouse no nome; click() na célula não abre
-        const target = current && current.row.querySelector('[data-testid="cell-frame-title"] span[title]');
+        const target = row.querySelector('[data-testid="cell-frame-title"] span[title]');
         if (!target) return;
         const init = { bubbles: true, cancelable: true, view: window };
         for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
@@ -107,8 +106,73 @@
         }
     }
 
+    function openChat(name) {
+        const current = readRows().get(name);
+        if (current) return press(current.row);
+        // grupo arquivado: abre a tela Arquivadas, abre a conversa e volta para a lista
+        const btn = document.querySelector('[data-testid="chatlist-panel-archived-button"]');
+        if (!btn) return;
+        btn.click();
+        setTimeout(() => {
+            const drawer = document.querySelector('[data-testid="archived-drawer"]');
+            const row = drawer && readRows(drawer, '[role="listitem"]').get(name);
+            if (row) press(row.row);
+            setTimeout(() => {
+                const back = document.querySelector('[data-testid="archived-drawer"] button[aria-label="Voltar"]');
+                if (back) back.click();
+            }, 400);
+        }, 700);
+    }
+
+    // grupos arquivados marcados para avisar (vale para o balão e para a bolinha)
+    const KEY = 'wl-arch-groups';
+    function groups() {
+        try { return new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); } catch (e) { return new Set(); }
+    }
+    function saveGroups(set) {
+        try { localStorage.setItem(KEY, JSON.stringify([...set])); } catch (e) {}
+    }
+
+    // botão "Selecionar grupos" na tela Arquivadas: marca com um ✓ cada grupo que deve avisar
+    let selecting = false;
+    function decorateArchived() {
+        const drawer = document.querySelector('[data-testid="archived-drawer"]');
+        if (!drawer) { selecting = false; return; }
+        let btn = document.getElementById('wl-arch-btn');
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.id = 'wl-arch-btn';
+            btn.style.cssText = 'margin:8px 24px;padding:6px 12px;border:0;border-radius:8px;background:#00a884;color:#fff;cursor:pointer;font:13px "Segoe UI",sans-serif';
+            btn.onclick = () => { selecting = !selecting; decorateArchived(); };
+            drawer.prepend(btn);
+        }
+        const label = selecting ? 'Concluir seleção' : 'Selecionar grupos';
+        if (btn.textContent !== label) btn.textContent = label;
+        const chosen = groups();
+        for (const [name, info] of readRows(drawer, '[role="listitem"]')) {
+            let mark = info.row.querySelector('.wl-arch-mark');
+            if (!selecting) { if (mark) mark.remove(); continue; }
+            if (!mark) {
+                mark = document.createElement('span');
+                mark.className = 'wl-arch-mark';
+                mark.style.cssText = 'position:absolute;right:90px;top:50%;margin-top:-11px;width:22px;height:22px;border-radius:50%;border:2px solid #00a884;color:#fff;text-align:center;font:14px/18px sans-serif;z-index:5;cursor:pointer';
+                mark.onclick = (e) => {
+                    e.stopPropagation(); e.preventDefault();
+                    const set = groups();
+                    set.has(name) ? set.delete(name) : set.add(name);
+                    saveGroups(set);
+                    decorateArchived();
+                };
+                info.row.appendChild(mark);
+            }
+            const tick = chosen.has(name) ? '✓' : '';
+            if (mark.textContent !== tick) mark.textContent = tick;
+            mark.style.background = chosen.has(name) ? '#00a884' : 'transparent';
+        }
+    }
+
     // usado pela bolinha (bubble_feed.js)
-    window.__wlChats = { readRows, previewOf, openChat };
+    window.__wlChats = { readRows, previewOf, openChat, groups };
 
     function show(name, info) {
         const popup = document.getElementById(POPUP_ID);

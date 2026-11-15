@@ -12,6 +12,10 @@
     const shown = new Map();
     // conversas respondidas pela bolinha: mensagens já vistas, que saem da soma
     const dismissed = new Map();
+    // grupos arquivados marcados: contagem lida a cada poll (só com a janela escondida)
+    const archCounts = new Map();
+    let archPrev = null;
+    let archBusy = false;
     window.__wlFeed = { shown, dismissed };
     // a bolinha é criada sob demanda e precisa receber o total de novo
     window.__wlResend = () => { lastUnread = -1; };
@@ -49,6 +53,9 @@
             if (info.count === 0) dismissed.delete(name);
             if (!info.muted) unread += Math.max(0, info.count - (dismissed.get(name) || 0));
         }
+        for (const [name, c] of archCounts) {
+            if (!rows.has(name)) unread += Math.max(0, c - (dismissed.get(name) || 0));
+        }
         if (unread !== lastUnread) {
             lastUnread = unread;
             invoke('bubble_unread', { count: unread });
@@ -70,6 +77,54 @@
             }
         }
         counts = new Map([...rows].map(([name, info]) => [name, info.count]));
+    }
+
+    // abre Arquivadas por baixo dos panos, lê os grupos marcados e volta.
+    // ponytail: só com a janela escondida; sem o balão para o grupo cujo nome some da gaveta (lista longa).
+    async function pollArchived() {
+        const chats = window.__wlChats;
+        if (archBusy || !chats || document.visibilityState === 'visible') return;
+        const chosen = chats.groups();
+        if (!chosen.size) { archCounts.clear(); return; }
+        const btn = document.querySelector('[data-testid="chatlist-panel-archived-button"]');
+        if (!btn) return;
+        archBusy = true;
+        try {
+            btn.click();
+            let drawer = null;
+            for (let i = 0; i < 20 && !drawer; i++) {
+                await sleep(100);
+                drawer = document.querySelector('[data-testid="archived-drawer"]');
+            }
+            if (!drawer) return;
+            await sleep(300);
+            const rows = chats.readRows(drawer, '[role="listitem"]');
+            const next = new Map();
+            let notified = false;
+            for (const name of chosen) {
+                const info = rows.get(name);
+                if (!info) { if (archPrev && archPrev.has(name)) next.set(name, archPrev.get(name)); continue; }
+                if (info.count === 0) dismissed.delete(name);
+                if (info.muted || info.count === 0) { archCounts.delete(name); next.set(name, info.count); continue; }
+                archCounts.set(name, info.count);
+                next.set(name, info.count);
+                if (archPrev && !notified && info.count > (archPrev.get(name) || 0)) {
+                    const img = info.row.querySelector('img');
+                    shown.set(name, info.count);
+                    notified = true;
+                    invoke('bubble_message', {
+                        chat: name,
+                        text: chats.previewOf(info.row),
+                        avatar: img && img.src ? img.src : null,
+                    });
+                }
+            }
+            archPrev = next;
+            const back = drawer.querySelector('button[aria-label="Voltar"]');
+            if (back) back.click();
+        } finally {
+            archBusy = false;
+        }
     }
 
     function openTitle() {
@@ -102,4 +157,5 @@
     };
 
     setInterval(tick, 1000);
+    setInterval(pollArchived, 20000);
 })();
