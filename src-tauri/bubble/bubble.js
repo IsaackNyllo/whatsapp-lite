@@ -129,3 +129,5 @@ form.addEventListener('input', () => {
 $('done').addEventListener('click', () => { form.classList.remove('on'); resize('ball'); });
 
 apply();
+
+invoke('bubble_ready');

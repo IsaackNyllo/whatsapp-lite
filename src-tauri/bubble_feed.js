@@ -13,6 +13,8 @@
     // conversas respondidas pela bolinha: mensagens já vistas, que saem da soma
     const dismissed = new Map();
     window.__wlFeed = { shown, dismissed };
+    // a bolinha é criada sob demanda e precisa receber o total de novo
+    window.__wlResend = () => { lastUnread = -1; };
 
     // no modo bolinha quem avisa é o balão dela, não a notificação do Windows
     window.__wlBubbleMode = false;

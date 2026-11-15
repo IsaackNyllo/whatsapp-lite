@@ -161,9 +161,7 @@ fn save_settings(app: &AppHandle) {
 }
 
 fn show_main_window(app: &AppHandle) {
-    if let Some(bubble) = app.get_webview_window("bubble") {
-        let _ = bubble.hide();
-    }
+    close_bubble(app);
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.eval("window.__wlBubbleMode = false");
         set_in_tray(&window, false);
@@ -174,8 +172,15 @@ fn show_main_window(app: &AppHandle) {
 }
 
 // Bolinha: janela pequena, sempre por cima, com a página de src-tauri/bubble/.
-fn setup_bubble_window(app: &tauri::App) -> tauri::Result<()> {
-    WebviewWindowBuilder::new(app, "bubble", WebviewUrl::App("index.html".into()))
+// Só existe enquanto a bolinha está ativa: uma janela escondida custa ~100 MB.
+fn create_bubble(app: &AppHandle) -> tauri::Result<()> {
+    // ambiente próprio do WebView2: dividir o da principal impede ela de encolher na bandeja
+    let dir = app.path().app_local_data_dir().map(|d| d.join("bubble-webview"));
+    let mut builder = WebviewWindowBuilder::new(app, "bubble", WebviewUrl::App("index.html".into()));
+    if let Ok(dir) = dir {
+        builder = builder.data_directory(dir);
+    }
+    let bubble = builder
         .title("WhatsApp Lite")
         .inner_size(76.0, 76.0)
         .decorations(false)
@@ -184,9 +189,16 @@ fn setup_bubble_window(app: &tauri::App) -> tauri::Result<()> {
         .resizable(false)
         .always_on_top(true)
         .skip_taskbar(true)
-        .visible(false)
         .build()?;
+    // o Windows impõe largura mínima a janela criada visível; força o tamanho depois
+    let _ = bubble.set_size(tauri::LogicalSize::new(76.0, 76.0));
     Ok(())
+}
+
+fn close_bubble(app: &AppHandle) {
+    if let Some(bubble) = app.get_webview_window("bubble") {
+        let _ = bubble.close();
+    }
 }
 
 fn eval_in(app: &AppHandle, label: &str, js: String) {
@@ -195,23 +207,30 @@ fn eval_in(app: &AppHandle, label: &str, js: String) {
     }
 }
 
+// async: criar janela em comando síncrono trava no Windows
 #[tauri::command]
-fn bubble_enter(app: AppHandle) {
+async fn bubble_enter(app: AppHandle) {
+    if app.get_webview_window("bubble").is_none() {
+        if let Err(e) = create_bubble(&app) {
+            eprintln!("Erro ao criar a bolinha: {}", e);
+            return;
+        }
+    }
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.hide();
         set_in_tray(&main, true);
         let _ = main.eval("window.__wlBubbleMode = true");
     }
-    if let Some(bubble) = app.get_webview_window("bubble") {
-        let _ = bubble.show();
-    }
+}
+
+// a bolinha acabou de carregar: pede o total de não lidas de novo
+#[tauri::command]
+fn bubble_ready(app: AppHandle) {
+    eval_in(&app, "main", "window.__wlResend && window.__wlResend()".into());
 }
 
 #[tauri::command]
 fn bubble_open(app: AppHandle, chat: Option<String>) {
-    if let Some(bubble) = app.get_webview_window("bubble") {
-        let _ = bubble.hide();
-    }
     show_main_window(&app);
     if let Some(chat) = chat {
         let name = serde_json::to_string(&chat).unwrap_or_default();
@@ -392,19 +411,31 @@ fn main() {
                 eprintln!("Erro na inicialização: {}", e);
                 e
             })?;
-            setup_bubble_window(app)?;
             setup_tray(app)?;
+            // desenvolvimento: WL_AUTOBUBBLE=<segundos> entra no modo bolinha sozinho (medir consumo sem depurador)
+            if let Some(secs) = env::var("WL_AUTOBUBBLE").ok().and_then(|v| v.parse::<u64>().ok()) {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(secs));
+                    tauri::async_runtime::block_on(bubble_enter(handle));
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             bubble_enter,
             bubble_open,
             bubble_message,
+            bubble_ready,
             bubble_reply,
             bubble_unread
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
+                // só a janela principal vai para a bandeja; a bolinha fecha de verdade
+                if window.label() != "main" {
+                    return;
+                }
                 let settings = window.app_handle().state::<Settings>();
                 if settings.run_in_background.load(Ordering::Relaxed) {
                     api.prevent_close();
@@ -412,7 +443,7 @@ fn main() {
                     if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
                         set_in_tray(&webview, true);
                     }
-                } else if window.label() == "main" {
+                } else {
                     // a bolinha é outra janela e manteria o app aberto
                     window.app_handle().exit(0);
                 }
