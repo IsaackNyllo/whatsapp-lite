@@ -42,6 +42,8 @@ fn configure_webview_args() {
         "--disable-gpu-compositing".to_string(),
         "--disable-smooth-scrolling".to_string(),
         "--disable-features=msWebOOUI".to_string(),
+        // o som da bolinha toca sem ninguém clicar na janela dela
+        "--autoplay-policy=no-user-gesture-required".to_string(),
     ]);
 
     // desenvolvimento: ex. WL_WEBVIEW_ARGS=--remote-debugging-port=9222 para inspecionar a página

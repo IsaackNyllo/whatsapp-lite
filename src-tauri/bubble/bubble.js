@@ -5,8 +5,8 @@ const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args);
 const $ = (id) => document.getElementById(id);
 
 // tamanhos da janela em cada estado
-const SIZE = { ball: [76, 76], card: [340, 104], reply: [340, 138], opts: [300, 200] };
-const DEFAULTS = { color: '#ffffff', count: true, preview: true, seconds: 5 };
+const SIZE = { ball: [76, 76], card: [340, 104], reply: [340, 138], opts: [300, 232] };
+const DEFAULTS = { color: '#ffffff', count: true, preview: true, sound: true, seconds: 5 };
 
 let opts = { ...DEFAULTS };
 try { opts = { ...DEFAULTS, ...JSON.parse(localStorage.getItem('wl-bubble') || '{}') }; } catch {}
@@ -47,7 +47,30 @@ function apply() {
 
 window.wlUnread = (n) => { unread = n; apply(); };
 
+// som de aviso: dois tons curtos, gerados aqui mesmo (sem arquivo)
+let audio = null;
+function ding() {
+    try {
+        audio = audio || new AudioContext();
+        if (audio.state === 'suspended') audio.resume();
+        const t0 = audio.currentTime;
+        [880, 1175].forEach((freq, i) => {
+            const osc = audio.createOscillator();
+            const gain = audio.createGain();
+            const t = t0 + i * 0.13;
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.0001, t);
+            gain.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+            osc.connect(gain).connect(audio.destination);
+            osc.start(t);
+            osc.stop(t + 0.25);
+        });
+    } catch {}
+}
+
 window.wlMessage = ({ chat, text, avatar }) => {
+    if (opts.sound) ding();
     if (!opts.preview || $('opts').classList.contains('on')) return;
     // não atropela uma resposta sendo escrita
     if ($('card').matches('.on.replying')) return;
@@ -111,16 +134,19 @@ $('ball').addEventListener('contextmenu', (e) => {
     form.color.value = opts.color;
     form.count.checked = opts.count;
     form.preview.checked = opts.preview;
+    form.sound.checked = opts.sound;
     form.seconds.value = opts.seconds;
     $('card').classList.remove('on');
     form.classList.add('on');
     resize('opts');
 });
+form.addEventListener('change', (e) => { if (e.target === form.sound && form.sound.checked) ding(); });
 form.addEventListener('input', () => {
     opts = {
         color: form.color.value,
         count: form.count.checked,
         preview: form.preview.checked,
+        sound: form.sound.checked,
         seconds: Math.min(60, Math.max(1, parseInt(form.seconds.value, 10) || DEFAULTS.seconds)),
     };
     try { localStorage.setItem('wl-bubble', JSON.stringify(opts)); } catch {}
