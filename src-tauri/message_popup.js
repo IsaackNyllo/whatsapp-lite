@@ -133,8 +133,50 @@
         try { localStorage.setItem(KEY, JSON.stringify([...set])); } catch (e) {}
     }
 
-    // botão "Selecionar grupos" na tela Arquivadas: marca com um ✓ cada grupo que deve avisar
+    // botão "Selecionar grupos" na tela Arquivadas. Ativo: clicar num grupo marca (verde + ✓ na foto)
+    // ou desmarca (✗ na foto); apertar o botão de novo salva.
     let selecting = false;
+    let draft = new Set();
+    const GREEN = 'rgba(0, 168, 132, 0.22)';
+    function symbol(row, text, color) {
+        const img = row.querySelector('img');
+        const box = img && img.parentElement;
+        if (!box) return;
+        let el = box.querySelector('.wl-arch-mark');
+        if (!text) { if (el) el.remove(); return; }
+        if (!el) {
+            if (getComputedStyle(box).position === 'static') box.style.position = 'relative';
+            el = document.createElement('span');
+            el.className = 'wl-arch-mark';
+            el.style.cssText = 'position:absolute;inset:0;border-radius:50%;display:flex;align-items:center;justify-content:center;font:bold 22px "Segoe UI",sans-serif;color:#fff;pointer-events:none';
+            box.appendChild(el);
+        }
+        if (el.textContent !== text) el.textContent = text;
+        el.style.background = color;
+    }
+    function toggleSelecting() {
+        if (selecting) saveGroups(draft);
+        else draft = groups();
+        selecting = !selecting;
+        decorateArchived();
+    }
+    // com a seleção ativa, o clique no grupo marca em vez de abrir a conversa
+    function onSelectClick(e) {
+        if (!selecting) return;
+        const item = e.target.closest && e.target.closest('[data-testid="archived-drawer"] [role="listitem"]');
+        if (!item) return;
+        e.stopPropagation();
+        e.preventDefault();
+        if (e.type !== 'click') return;
+        const t = item.querySelector('[data-testid="cell-frame-title"] span[title]');
+        if (!t) return;
+        const name = t.getAttribute('title');
+        draft.has(name) ? draft.delete(name) : draft.add(name);
+        decorateArchived();
+    }
+    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+        document.addEventListener(type, onSelectClick, true);
+    }
     function decorateArchived() {
         const drawer = document.querySelector('[data-testid="archived-drawer"]');
         if (!drawer) { selecting = false; return; }
@@ -143,35 +185,21 @@
             btn = document.createElement('button');
             btn.id = 'wl-arch-btn';
             btn.style.cssText = 'margin:8px 24px;padding:6px 12px;border:0;border-radius:8px;background:#00a884;color:#fff;cursor:pointer;font:13px "Segoe UI",sans-serif';
-            btn.onclick = () => { selecting = !selecting; decorateArchived(); };
+            btn.onclick = toggleSelecting;
             drawer.prepend(btn);
         }
-        const label = selecting ? 'Concluir seleção' : 'Selecionar grupos';
+        const label = selecting ? 'Salvar seleção' : 'Selecionar grupos';
         if (btn.textContent !== label) btn.textContent = label;
-        const chosen = groups();
+        const saved = groups();
         for (const [name, info] of readRows(drawer, '[role="listitem"]')) {
-            let mark = info.row.querySelector('.wl-arch-mark');
-            if (!selecting) { if (mark) mark.remove(); continue; }
-            if (!mark) {
-                mark = document.createElement('span');
-                mark.className = 'wl-arch-mark';
-                mark.style.cssText = 'position:absolute;right:90px;top:50%;margin-top:-11px;width:22px;height:22px;border-radius:50%;border:2px solid #00a884;color:#fff;text-align:center;font:14px/18px sans-serif;z-index:5;cursor:pointer';
-                mark.onclick = (e) => {
-                    e.stopPropagation(); e.preventDefault();
-                    const set = groups();
-                    set.has(name) ? set.delete(name) : set.add(name);
-                    saveGroups(set);
-                    decorateArchived();
-                };
-                info.row.appendChild(mark);
-            }
-            const tick = chosen.has(name) ? '✓' : '';
-            if (mark.textContent !== tick) mark.textContent = tick;
-            mark.style.background = chosen.has(name) ? '#00a884' : 'transparent';
+            if (!selecting) { symbol(info.row, '', ''); info.row.style.background = ''; continue; }
+            const on = draft.has(name);
+            const removed = !on && saved.has(name);
+            info.row.style.background = on ? GREEN : '';
+            symbol(info.row, on ? '✓' : removed ? '✗' : '', on ? 'rgba(0, 168, 132, 0.85)' : 'rgba(200, 50, 50, 0.85)');
         }
     }
 
-    // usado pela bolinha (bubble_feed.js)
     window.__wlChats = { readRows, previewOf, openChat, groups };
 
     function show(name, info) {
