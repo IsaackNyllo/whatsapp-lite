@@ -40,3 +40,8 @@ html, body { margin: 0; background: transparent; overflow: hidden; user-select: 
 #opts input[type=color] { vertical-align: middle; }
 #done { margin-top: auto; align-self: flex-end; padding: 4px 14px; border: none; border-radius: 6px;
         background: #25d366; color: #111b21; font-weight: 600; cursor: pointer; }
+
+/* bolinha perto da borda direita: tudo abre para a esquerda */
+body.left #ball { left: auto; right: 10px; }
+body.left #card, body.left #opts { left: 8px; right: 80px; }
+body.left #card::before { left: auto; right: -7px; border-right: 0; border-left: 7px solid #202c33; }

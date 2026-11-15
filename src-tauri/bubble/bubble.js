@@ -15,8 +15,27 @@ let unread = 0;
 let cardChat = null;
 let hideTimer = null;
 
+// perto da borda direita a janela cresce para a esquerda (classe .left) e a bolinha não sai do lugar
+let shift = 0;
+
 function resize(state) {
     const [width, height] = SIZE[state];
+    const ball = SIZE.ball[0];
+    let x = window.screenX;
+    if (state === 'ball') {
+        x += shift;
+        shift = 0;
+    } else if (!shift && x + width > (screen.availLeft || 0) + screen.availWidth) {
+        shift = width - ball;
+        x -= shift;
+    } else if (shift) {
+        // outro estado aberto já virado: mantém a bolinha no mesmo ponto
+        x += shift - (width - ball);
+        shift = width - ball;
+    }
+    document.body.classList.toggle('left', shift > 0);
+    const y = window.screenY;
+    invoke('plugin:window|set_position', { label: 'bubble', value: { Logical: { x, y } } });
     invoke('plugin:window|set_size', { label: 'bubble', value: { Logical: { width, height } } });
 }
 
