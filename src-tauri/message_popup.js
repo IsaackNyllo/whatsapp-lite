@@ -106,22 +106,23 @@
         }
     }
 
-    function openChat(name) {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    // devolve uma promessa que só termina com a lista já estável (quem digita em seguida precisa disso)
+    async function openChat(name) {
         const current = readRows().get(name);
         if (current) return press(current.row);
         // grupo arquivado: abre a tela Arquivadas, abre a conversa e volta para a lista
         const btn = document.querySelector('[data-testid="chatlist-panel-archived-button"]');
         if (!btn) return;
         btn.click();
-        setTimeout(() => {
-            const drawer = document.querySelector('[data-testid="archived-drawer"]');
-            const row = drawer && readRows(drawer, '[role="listitem"]').get(name);
-            if (row) press(row.row);
-            setTimeout(() => {
-                const back = document.querySelector('[data-testid="archived-drawer"] button[aria-label="Voltar"]');
-                if (back) back.click();
-            }, 400);
-        }, 700);
+        await wait(700);
+        const drawer = document.querySelector('[data-testid="archived-drawer"]');
+        const row = drawer && readRows(drawer, '[role="listitem"]').get(name);
+        if (row) press(row.row);
+        await wait(400);
+        const back = document.querySelector('[data-testid="archived-drawer"] button[aria-label="Voltar"]');
+        if (back) back.click();
+        await wait(500);
     }
 
     // grupos arquivados marcados para avisar (vale para o balão e para a bolinha)

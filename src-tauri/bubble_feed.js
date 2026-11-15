@@ -141,7 +141,7 @@
         // responder só dá a conversa por vista se havia 1 mensagem (a do balão) e nada novo chegou
         const row = window.__wlChats.readRows().get(name);
         const seen = row && row.count === 1 && shown.get(name) === 1;
-        if (openTitle() !== name) window.__wlChats.openChat(name);
+        if (openTitle() !== name) await window.__wlChats.openChat(name);
         for (let i = 0; i < 30 && openTitle() !== name; i++) await sleep(100);
         if (openTitle() !== name) return;
         const box = document.querySelector('#main footer [contenteditable="true"]');
