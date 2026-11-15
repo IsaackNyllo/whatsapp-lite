@@ -3,6 +3,8 @@
     windows_subsystem = "windows"
 )]
 
+mod mcp;
+
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,6 +17,8 @@ use tauri::{AppHandle, Manager, Url, Webview, WebviewUrl, WebviewWindowBuilder, 
 struct Settings {
     run_in_background: AtomicBool,
     ask_download_path: AtomicBool,
+    mcp_enabled: AtomicBool,
+    mcp_token: String,
 }
 
 const DEFAULT_PROXY: Option<&str> = None;
@@ -25,6 +29,7 @@ const COMPACT_CHAT_SCRIPT: &str = include_str!("../compact_chat.js");
 const MESSAGE_POPUP_SCRIPT: &str = include_str!("../message_popup.js");
 const TITLEBAR_SCRIPT: &str = include_str!("../titlebar.js");
 const BUBBLE_FEED_SCRIPT: &str = include_str!("../bubble_feed.js");
+const MCP_TOOLS_SCRIPT: &str = include_str!("../mcp_tools.js");
 
 const WHATSAPP_ORIGIN: &str = "https://web.whatsapp.com/";
 
@@ -138,11 +143,14 @@ fn load_settings(app: &AppHandle) -> Settings {
         .and_then(|path| fs::read_to_string(path).ok())
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
         .unwrap_or_default();
-    let flag = |key: &str| AtomicBool::new(json[key].as_bool().unwrap_or(true));
+    let flag = |key: &str, default| AtomicBool::new(json[key].as_bool().unwrap_or(default));
+    let token = json["mcp_token"].as_str().filter(|t| t.len() == 64).map(String::from);
 
     Settings {
-        run_in_background: flag("run_in_background"),
-        ask_download_path: flag("ask_download_path"),
+        run_in_background: flag("run_in_background", true),
+        ask_download_path: flag("ask_download_path", true),
+        mcp_enabled: flag("mcp_enabled", false),
+        mcp_token: token.unwrap_or_else(mcp::new_token),
     }
 }
 
@@ -152,6 +160,8 @@ fn save_settings(app: &AppHandle) {
     let json = serde_json::json!({
         "run_in_background": settings.run_in_background.load(Ordering::Relaxed),
         "ask_download_path": settings.ask_download_path.load(Ordering::Relaxed),
+        "mcp_enabled": settings.mcp_enabled.load(Ordering::Relaxed),
+        "mcp_token": settings.mcp_token,
     });
     let result = path
         .parent()
@@ -281,6 +291,20 @@ fn set_in_tray(window: &tauri::WebviewWindow, in_tray: bool) {
     });
 }
 
+const MCP_LABEL: &str = "Conectar a IAs (MCP)";
+
+// Porta ocupada não derruba o app: o item da bandeja avisa e tenta de novo ao religar.
+fn mcp_listen(app: &AppHandle, item: &CheckMenuItem<tauri::Wry>) {
+    let label = match mcp::listen(app) {
+        Ok(()) => MCP_LABEL.to_string(),
+        Err(e) => {
+            eprintln!("MCP: não abriu a porta {}: {}", mcp::PORT, e);
+            format!("{MCP_LABEL}: porta {} ocupada", mcp::PORT)
+        }
+    };
+    let _ = item.set_text(label);
+}
+
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let settings = app.state::<Settings>();
 
@@ -301,8 +325,23 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         settings.ask_download_path.load(Ordering::Relaxed),
         None::<&str>,
     )?;
+    let mcp_on = CheckMenuItem::with_id(
+        app,
+        "mcp",
+        MCP_LABEL,
+        true,
+        settings.mcp_enabled.load(Ordering::Relaxed),
+        None::<&str>,
+    )?;
+    let mcp_copy = MenuItem::with_id(app, "mcp_copy", "Copiar comando de conexão", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &background, &ask_download, &quit])?;
+    let menu = Menu::with_items(
+        app,
+        &[&open, &background, &ask_download, &mcp_on, &mcp_copy, &quit],
+    )?;
+    if settings.mcp_enabled.load(Ordering::Relaxed) {
+        mcp_listen(app.handle(), &mcp_on);
+    }
 
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("WhatsApp Lite")
@@ -313,13 +352,25 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             let toggled = match event.id().as_ref() {
                 "open" => return show_main_window(app),
                 "quit" => return app.exit(0),
+                "mcp_copy" => {
+                    let command = mcp::connect_command(&app.state::<Settings>().mcp_token);
+                    if let Err(e) = mcp::copy_to_clipboard(&command) {
+                        eprintln!("Erro ao copiar o comando do MCP: {}", e);
+                    }
+                    return;
+                }
+                "mcp" => (&mcp_on, &app.state::<Settings>().mcp_enabled),
                 "background" => (&background, &app.state::<Settings>().run_in_background),
                 "ask_download" => (&ask_download, &app.state::<Settings>().ask_download_path),
                 _ => return,
             };
             let (item, flag) = toggled;
-            flag.store(item.is_checked().unwrap_or(true), Ordering::Relaxed);
+            let on = item.is_checked().unwrap_or(true);
+            flag.store(on, Ordering::Relaxed);
             save_settings(app);
+            if on && event.id() == "mcp" {
+                mcp_listen(app, item);
+            }
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
@@ -384,6 +435,7 @@ fn setup_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>>
         .initialization_script(MESSAGE_POPUP_SCRIPT)
         .initialization_script(TITLEBAR_SCRIPT)
         .initialization_script(BUBBLE_FEED_SCRIPT)
+        .initialization_script(MCP_TOOLS_SCRIPT)
         .on_new_window(|url, _features| {
             open_in_browser(&url);
             NewWindowResponse::Deny
@@ -408,6 +460,9 @@ fn main() {
         }))
         .setup(|app| {
             app.manage(load_settings(app.handle()));
+            app.manage(mcp::Bridge::default());
+            // garante o token do MCP no arquivo (é gerado na primeira vez)
+            save_settings(app.handle());
 
             setup_main_window(app).map_err(|e| {
                 eprintln!("Erro na inicialização: {}", e);
@@ -430,7 +485,8 @@ fn main() {
             bubble_message,
             bubble_ready,
             bubble_reply,
-            bubble_unread
+            bubble_unread,
+            mcp::mcp_result
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
