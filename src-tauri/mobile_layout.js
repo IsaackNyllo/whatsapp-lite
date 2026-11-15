@@ -200,11 +200,14 @@
     }
 
     // na barra de baixo: o que não cabe some, os menos importantes primeiro
-    const NAV_PRIORITY = [/conversas|chats/i, /status/i, /liga[çc][õo]es|calls/i, /comunidades|communities/i];
+    const NAV_PRIORITY = [/conversas|chats/i, /status/i, /liga[çc][õo]es|calls/i, /comunidades|communities/i, /configura[çc][õo]es|settings/i];
+    // Anunciar (Business) sai antes de todos: continua nos três pontinhos
+    const NAV_FIRST_OUT = /anunciar|advertise/i;
 
     function navRank(item) {
         const el = item.matches('[aria-label]') ? item : item.querySelector('[aria-label]');
         const label = el ? el.getAttribute('aria-label') : '';
+        if (NAV_FIRST_OUT.test(label)) return NAV_PRIORITY.length + 1;
         const i = NAV_PRIORITY.findIndex(re => re.test(label));
         return i < 0 ? NAV_PRIORITY.length : i;
     }
@@ -222,7 +225,37 @@
         }
     }
 
+    // três pontinhos, só no modo celular: "Configurações" antes de "Bloqueio do app"
+    const MENU_ID = 'wl-menu-settings';
+    function addMenuSettings() {
+        if (window.innerWidth > NARROW_WIDTH || document.getElementById(MENU_ID)) return;
+        const byLabel = (sel, re) => [...document.querySelectorAll(sel)].find(el => re.test(el.getAttribute('aria-label')));
+        const lock = byLabel('[role="menu"] [role="menuitem"][aria-label]', /bloqueio|app lock/i);
+        const gear = lock && byLabel('[data-wl="nav"] button[aria-label]', /configura[çc][õo]es|settings/i);
+        if (!gear) return;
+        // cópia do item vizinho: herda o visual do menu do WhatsApp
+        const item = lock.cloneNode(true);
+        item.id = MENU_ID;
+        item.setAttribute('aria-label', 'Configurações');
+        const icon = gear.querySelector('svg'), old = item.querySelector('svg');
+        if (icon && old) {
+            const svg = icon.cloneNode(true);
+            svg.setAttribute('width', '18');
+            svg.setAttribute('height', '18');
+            old.replaceWith(svg);
+        }
+        const text = item.querySelector('span:not([aria-hidden])');
+        if (text) text.textContent = 'Configurações';
+        item.addEventListener('click', () => {
+            gear.click();
+            const init = { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true };
+            document.body.dispatchEvent(new KeyboardEvent('keydown', init));
+        });
+        lock.before(item);
+    }
+
     function refresh() {
+        addMenuSettings();
         const column = findColumn();
         if (!column) {
             setMode(null);
