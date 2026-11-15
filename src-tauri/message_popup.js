@@ -133,26 +133,33 @@
         try { localStorage.setItem(KEY, JSON.stringify([...set])); } catch (e) {}
     }
 
-    // botão "Selecionar grupos" na tela Arquivadas. Ativo: clicar num grupo marca (verde + ✓ na foto)
-    // ou desmarca (✗ na foto); apertar o botão de novo salva.
+    // Tela Arquivadas: a bolinha ao lado do aviso liga a seleção. Ligada, clicar num grupo marca (cartão
+    // verde + selo ✓ no canto da foto) ou tira (selo ✗ vermelho); apertar a bolinha de novo salva.
     let selecting = false;
     let draft = new Set();
-    const GREEN = 'rgba(0, 168, 132, 0.22)';
-    function symbol(row, text, color) {
+    const PICKED = '#14493b';
+    const ICON_V = '<path d="M5 12.5l4.5 4.5L19 7.5"/>';
+    const ICON_X = '<path d="M6 6l12 12M18 6L6 18"/>';
+    const svg = (path, size, stroke, w) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="${stroke}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" style="display:block">${path}</svg>`;
+
+    function badge(row, kind) {
         const img = row.querySelector('img');
         const box = img && img.parentElement;
         if (!box) return;
         let el = box.querySelector('.wl-arch-mark');
-        if (!text) { if (el) el.remove(); return; }
+        if (!kind) { if (el) el.remove(); return; }
         if (!el) {
             if (getComputedStyle(box).position === 'static') box.style.position = 'relative';
             el = document.createElement('span');
             el.className = 'wl-arch-mark';
-            el.style.cssText = 'position:absolute;inset:0;border-radius:50%;display:flex;align-items:center;justify-content:center;font:bold 22px "Segoe UI",sans-serif;color:#fff;pointer-events:none';
+            el.style.cssText = 'position:absolute;top:-3px;right:-3px;width:14px;height:14px;border-radius:50%;display:grid;place-items:center;box-shadow:0 0 0 2px #111b21;pointer-events:none;z-index:2';
             box.appendChild(el);
         }
-        if (el.textContent !== text) el.textContent = text;
-        el.style.background = color;
+        if (el.dataset.kind !== kind) {
+            el.dataset.kind = kind;
+            el.innerHTML = svg(kind === 'v' ? ICON_V : ICON_X, 8, '#fff', 3.4);
+            el.style.background = kind === 'v' ? '#00a884' : '#e5484d';
+        }
     }
     function toggleSelecting() {
         if (selecting) saveGroups(draft);
@@ -160,7 +167,7 @@
         selecting = !selecting;
         decorateArchived();
     }
-    // com a seleção ativa, o clique no grupo marca em vez de abrir a conversa
+    // com a seleção ligada, o clique no grupo marca em vez de abrir a conversa
     function onSelectClick(e) {
         if (!selecting) return;
         const item = e.target.closest && e.target.closest('[data-testid="archived-drawer"] [role="listitem"]');
@@ -177,26 +184,40 @@
     for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
         document.addEventListener(type, onSelectClick, true);
     }
+    // o aviso "Essas conversas permanecem arquivadas…": o menor div com texto longo e sem linhas de conversa
+    function archivedNote(drawer) {
+        const found = [...drawer.querySelectorAll('div')].filter(
+            (d) => !d.querySelector('[role="listitem"]') && !d.closest('[role="listitem"]') && d.textContent.length > 60);
+        return found[found.length - 1] || null;
+    }
     function decorateArchived() {
         const drawer = document.querySelector('[data-testid="archived-drawer"]');
         if (!drawer) { selecting = false; return; }
         let btn = document.getElementById('wl-arch-btn');
         if (!btn) {
+            const note = archivedNote(drawer);
+            if (!note) return;
+            if (getComputedStyle(note).position === 'static') note.style.position = 'relative';
+            note.style.paddingRight = '84px';
             btn = document.createElement('button');
             btn.id = 'wl-arch-btn';
-            btn.style.cssText = 'margin:8px 24px;padding:6px 12px;border:0;border-radius:8px;background:#00a884;color:#fff;cursor:pointer;font:13px "Segoe UI",sans-serif';
+            btn.title = 'Selecionar grupos que avisam';
+            btn.style.cssText = 'position:absolute;right:16px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:0;color:#e9edef;cursor:pointer;font:11px "Segoe UI",sans-serif;padding:2px 4px';
             btn.onclick = toggleSelecting;
-            drawer.prepend(btn);
+            note.appendChild(btn);
         }
-        const label = selecting ? 'Salvar seleção' : 'Selecionar grupos';
-        if (btn.textContent !== label) btn.textContent = label;
+        const state = selecting ? 'on' : 'off';
+        if (btn.dataset.state !== state) {
+            btn.dataset.state = state;
+            const ring = `display:grid;place-items:center;width:28px;height:28px;border-radius:50%;box-sizing:border-box;border:2px solid ${selecting ? '#00a884' : '#e9edef'};background:${selecting ? '#00a884' : 'transparent'}`;
+            btn.innerHTML = `<span style="${ring}">${svg(ICON_V, 15, '#e9edef', 2.6)}</span><span>${selecting ? 'Salvar' : 'Selecionar'}</span>`;
+        }
         const saved = groups();
         for (const [name, info] of readRows(drawer, '[role="listitem"]')) {
-            if (!selecting) { symbol(info.row, '', ''); info.row.style.background = ''; continue; }
+            if (!selecting) { badge(info.row, ''); info.row.style.background = ''; continue; }
             const on = draft.has(name);
-            const removed = !on && saved.has(name);
-            info.row.style.background = on ? GREEN : '';
-            symbol(info.row, on ? '✓' : removed ? '✗' : '', on ? 'rgba(0, 168, 132, 0.85)' : 'rgba(200, 50, 50, 0.85)');
+            info.row.style.background = on ? PICKED : '';
+            badge(info.row, on ? 'v' : saved.has(name) ? 'x' : '');
         }
     }
 
