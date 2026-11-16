@@ -220,7 +220,7 @@
       mensagens,
     };
     ctx.uso = { conversa: nome, n: payload.total };
-    avisarLeitura(ctx, nome, payload.total + ' mensagens', f.novas + fc.novas);
+    avisarLeitura(ctx, nome, payload.total + (payload.total === 1 ? ' mensagem' : ' mensagens'), f.novas + fc.novas);
     return payload;
   }
 
