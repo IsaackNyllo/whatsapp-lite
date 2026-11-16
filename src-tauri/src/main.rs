@@ -741,3 +741,25 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("Erro ao iniciar WhatsApp Lite Desktop");
 }
+
+#[cfg(test)]
+mod tests {
+    // comando novo em generate_handler! sem entrar na lista do build.rs é recusado pelo ACL
+    #[test]
+    fn comandos_declarados_no_build() {
+        let main = include_str!("main.rs");
+        let bloco = main.split("generate_handler![").nth(1).unwrap().split(']').next().unwrap();
+        let mut handler: Vec<&str> = bloco
+            .split(',')
+            .map(|c| c.trim().rsplit("::").next().unwrap())
+            .filter(|c| !c.is_empty())
+            .collect();
+        let build = include_str!("../build.rs");
+        let lista = build.split("COMMANDS: &[&str] = &[").nth(1).unwrap().split("];").next().unwrap();
+        let mut declarados: Vec<&str> = lista.split(',').map(|c| c.trim().trim_matches('"')).filter(|c| !c.is_empty()).collect();
+        handler.sort();
+        declarados.sort();
+        assert_eq!(handler, declarados);
+        assert!(handler.len() >= 22);
+    }
+}

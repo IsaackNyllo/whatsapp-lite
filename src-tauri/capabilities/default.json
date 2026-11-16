@@ -1,18 +1,16 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
+  "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["main", "bubble"],
+  "description": "Bolinha (conteúdo local de bubble/): mover, redimensionar e arrastar a própria janela, e os comandos dela",
+  "windows": ["bubble"],
   "permissions": [
-    "core:default",
-    "core:window:allow-close",
-    "core:window:allow-show",
-    "core:window:allow-hide",
-    "core:window:allow-minimize",
-    "core:window:allow-maximize",
+    "core:window:allow-set-position",
     "core:window:allow-set-size",
     "core:window:allow-start-dragging",
-    "core:window:allow-set-position",
-    "core:webview:default"
+    "allow-bubble-open",
+    "allow-bubble-reply",
+    "allow-bubble-ready",
+    "allow-bubble-opts-get",
+    "allow-bubble-opts-set"
   ]
 }

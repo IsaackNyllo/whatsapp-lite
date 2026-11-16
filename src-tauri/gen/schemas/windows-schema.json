@@ -177,6 +177,270 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the bubble_enter command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-bubble-enter",
+          "markdownDescription": "Enables the bubble_enter command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the bubble_message command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-bubble-message",
+          "markdownDescription": "Enables the bubble_message command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the bubble_notice command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-bubble-notice",
+          "markdownDescription": "Enables the bubble_notice command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the bubble_open command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-bubble-open",
+          "markdownDescription": "Enables the bubble_open command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the bubble_opts_get command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-bubble-opts-get",
+          "markdownDescription": "Enables the bubble_opts_get command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the bubble_opts_set command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-bubble-opts-set",
+          "markdownDescription": "Enables the bubble_opts_set command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the bubble_ready command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-bubble-ready",
+          "markdownDescription": "Enables the bubble_ready command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the bubble_reply command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-bubble-reply",
+          "markdownDescription": "Enables the bubble_reply command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the bubble_unread command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-bubble-unread",
+          "markdownDescription": "Enables the bubble_unread command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the filtro_acao command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-filtro-acao",
+          "markdownDescription": "Enables the filtro_acao command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the filtro_fila command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-filtro-fila",
+          "markdownDescription": "Enables the filtro_fila command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the filtro_get command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-filtro-get",
+          "markdownDescription": "Enables the filtro_get command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the filtro_minhas command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-filtro-minhas",
+          "markdownDescription": "Enables the filtro_minhas command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the filtro_ollama command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-filtro-ollama",
+          "markdownDescription": "Enables the filtro_ollama command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the filtro_verificar command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-filtro-verificar",
+          "markdownDescription": "Enables the filtro_verificar command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the lite_get command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-lite-get",
+          "markdownDescription": "Enables the lite_get command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the lite_notice_pos command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-lite-notice-pos",
+          "markdownDescription": "Enables the lite_notice_pos command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the lite_popup_style command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-lite-popup-style",
+          "markdownDescription": "Enables the lite_popup_style command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the lite_set command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-lite-set",
+          "markdownDescription": "Enables the lite_set command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mcp_conexao command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mcp-conexao",
+          "markdownDescription": "Enables the mcp_conexao command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mcp_copiar command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mcp-copiar",
+          "markdownDescription": "Enables the mcp_copiar command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mcp_result command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mcp-result",
+          "markdownDescription": "Enables the mcp_result command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the bubble_enter command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-bubble-enter",
+          "markdownDescription": "Denies the bubble_enter command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the bubble_message command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-bubble-message",
+          "markdownDescription": "Denies the bubble_message command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the bubble_notice command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-bubble-notice",
+          "markdownDescription": "Denies the bubble_notice command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the bubble_open command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-bubble-open",
+          "markdownDescription": "Denies the bubble_open command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the bubble_opts_get command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-bubble-opts-get",
+          "markdownDescription": "Denies the bubble_opts_get command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the bubble_opts_set command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-bubble-opts-set",
+          "markdownDescription": "Denies the bubble_opts_set command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the bubble_ready command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-bubble-ready",
+          "markdownDescription": "Denies the bubble_ready command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the bubble_reply command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-bubble-reply",
+          "markdownDescription": "Denies the bubble_reply command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the bubble_unread command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-bubble-unread",
+          "markdownDescription": "Denies the bubble_unread command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the filtro_acao command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-filtro-acao",
+          "markdownDescription": "Denies the filtro_acao command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the filtro_fila command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-filtro-fila",
+          "markdownDescription": "Denies the filtro_fila command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the filtro_get command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-filtro-get",
+          "markdownDescription": "Denies the filtro_get command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the filtro_minhas command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-filtro-minhas",
+          "markdownDescription": "Denies the filtro_minhas command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the filtro_ollama command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-filtro-ollama",
+          "markdownDescription": "Denies the filtro_ollama command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the filtro_verificar command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-filtro-verificar",
+          "markdownDescription": "Denies the filtro_verificar command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the lite_get command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-lite-get",
+          "markdownDescription": "Denies the lite_get command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the lite_notice_pos command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-lite-notice-pos",
+          "markdownDescription": "Denies the lite_notice_pos command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the lite_popup_style command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-lite-popup-style",
+          "markdownDescription": "Denies the lite_popup_style command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the lite_set command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-lite-set",
+          "markdownDescription": "Denies the lite_set command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mcp_conexao command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mcp-conexao",
+          "markdownDescription": "Denies the mcp_conexao command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mcp_copiar command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mcp-copiar",
+          "markdownDescription": "Denies the mcp_copiar command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mcp_result command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mcp-result",
+          "markdownDescription": "Denies the mcp_result command without any pre-configured scope."
+        },
+        {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
           "type": "string",
           "const": "core:default",
