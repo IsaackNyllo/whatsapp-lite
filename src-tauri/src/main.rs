@@ -3,6 +3,7 @@
     windows_subsystem = "windows"
 )]
 
+mod filtro;
 mod mcp;
 
 use std::env;
@@ -30,6 +31,10 @@ struct Settings {
     bubble: Mutex<Option<Value>>,
     /// visual do aviso de mensagem dentro da conversa: "a" (cartão), "b" (canto) ou "c" (pílula)
     popup_style: Mutex<String>,
+    /// filtro de mensagens: verificação pela IA local (Ollama), aviso na bolinha ao reter e regras do usuário
+    filtro_ia: AtomicBool,
+    filtro_avisar: AtomicBool,
+    filtro_minhas: Mutex<Value>,
 }
 
 /// Itens da bandeja que a tela de configurações também muda.
@@ -47,6 +52,7 @@ const COMPACT_CHAT_SCRIPT: &str = include_str!("../compact_chat.js");
 const MESSAGE_POPUP_SCRIPT: &str = include_str!("../message_popup.js");
 const TITLEBAR_SCRIPT: &str = include_str!("../titlebar.js");
 const BUBBLE_FEED_SCRIPT: &str = include_str!("../bubble_feed.js");
+const FILTRO_SCRIPT: &str = include_str!("../filtro.js");
 const MCP_TOOLS_SCRIPT: &str = include_str!("../mcp_tools.js");
 const LITE_SETTINGS_SCRIPT: &str = include_str!("../lite_settings.js");
 
@@ -182,6 +188,10 @@ fn load_settings(app: &AppHandle) -> Settings {
         mcp_token: Mutex::new(token.unwrap_or_else(mcp::new_token)),
         bubble: Mutex::new(json["bubble"].is_object().then(|| bubble_clean(&json["bubble"]))),
         popup_style: Mutex::new(popup_style_clean(json["popup_style"].as_str().unwrap_or("")).into()),
+        // desligada por padrão: usa a placa de vídeo
+        filtro_ia: flag("filtro_ia", false),
+        filtro_avisar: flag("filtro_avisar", true),
+        filtro_minhas: Mutex::new(if json["filtro_minhas"].is_array() { json["filtro_minhas"].clone() } else { json!([]) }),
     }
 }
 
@@ -197,6 +207,9 @@ fn save_settings(app: &AppHandle) {
         "mcp_token": *settings.mcp_token.lock().unwrap(),
         "bubble": *settings.bubble.lock().unwrap(),
         "popup_style": *settings.popup_style.lock().unwrap(),
+        "filtro_ia": settings.filtro_ia.load(Ordering::Relaxed),
+        "filtro_avisar": settings.filtro_avisar.load(Ordering::Relaxed),
+        "filtro_minhas": *settings.filtro_minhas.lock().unwrap(),
     });
     let result = path
         .parent()
@@ -376,6 +389,8 @@ fn lite_state(app: &AppHandle) -> Value {
         "autostart": autostart(),
         "popup_style": *s.popup_style.lock().unwrap(),
         "popup_on": s.popup_on.load(Ordering::Relaxed),
+        "filtro_ia": s.filtro_ia.load(Ordering::Relaxed),
+        "filtro_avisar": s.filtro_avisar.load(Ordering::Relaxed),
         "bubble": bubble_opts_get(app.clone())["opts"],
     })
 }
@@ -396,6 +411,8 @@ fn lite_set(app: AppHandle, key: String, on: bool) -> Value {
         "ask_download_path" => (&s.ask_download_path, Some(&tray.ask_download)),
         "mcp_notify" => (&s.mcp_notify, None),
         "popup_on" => (&s.popup_on, None),
+        "filtro_ia" => (&s.filtro_ia, None),
+        "filtro_avisar" => (&s.filtro_avisar, None),
         "autostart" => {
             if let Err(e) = set_autostart(on) {
                 eprintln!("Erro ao mudar o início com o Windows: {}", e);
@@ -617,6 +634,7 @@ fn setup_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>>
         .initialization_script(MESSAGE_POPUP_SCRIPT)
         .initialization_script(TITLEBAR_SCRIPT)
         .initialization_script(BUBBLE_FEED_SCRIPT)
+        .initialization_script(FILTRO_SCRIPT)
         .initialization_script(MCP_TOOLS_SCRIPT)
         .initialization_script(LITE_SETTINGS_SCRIPT)
         .on_new_window(|url, _features| {
@@ -647,6 +665,9 @@ fn main() {
         .setup(|app| {
             app.manage(load_settings(app.handle()));
             app.manage(mcp::Bridge::default());
+            // retidas e resultado da IA local: só neste PC (Local, não Roaming)
+            app.manage(filtro::Filtro::load(app.path().app_local_data_dir().ok()));
+            filtro::esteira(app.handle().clone());
             // garante o token do MCP no arquivo (é gerado na primeira vez)
             save_settings(app.handle());
 
@@ -679,7 +700,13 @@ fn main() {
             lite_popup_style,
             lite_copy_command,
             lite_new_token,
-            mcp::mcp_result
+            mcp::mcp_result,
+            filtro::filtro_verificar,
+            filtro::filtro_fila,
+            filtro::filtro_get,
+            filtro::filtro_acao,
+            filtro::filtro_minhas,
+            filtro::filtro_ollama
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
