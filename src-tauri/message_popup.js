@@ -2,6 +2,7 @@
     'use strict';
 
     const POPUP_ID = 'wl-message-popup';
+    const NOTICE_ID = 'wl-notice';
     const SHOW_MS = 5000;
 
     if (window.__wlPopup) window.__wlPopup.destroy();
@@ -46,6 +47,9 @@
             border-radius: 12px; border-left: 3px solid #21c063; padding: 10px 8px 10px 12px; }
         .wl-c { --tx: -50%; top: calc(var(--wl-bar, 0px) + 8px); left: 50%; width: max-content;
             max-width: calc(100vw - 24px); border-radius: 22px; padding: 4px 6px 4px 4px; box-shadow: 0 4px 14px rgba(0, 0, 0, .5); }
+        /* aviso "IA leu": mesmo cartão, sem Responder; fica no topo (a) ou no canto (b) */
+        .wl-n.wl-b { border-left: 0; width: min(380px, calc(100vw - 28px)); }
+        .wl-n .wl-warn { display: grid; place-items: center; background: #ffd279; color: #111; font-weight: 700; }
         .wl-c .wl-top { gap: 10px; }
         .wl-c .wl-av { width: 28px; height: 28px; }
         .wl-c .wl-text { max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -75,8 +79,10 @@
     let observer = null;
     let scanTimer = null;
     let hideTimer = null;
+    let noticeTimer = null;
     let started = false;
     let on = true; // "Mostrar aviso de mensagem nova" (Configurações > Aplicativo)
+    let nOn = true, nPos = 'a'; // "Mostrar também na janela" e onde (Conectores de IA > Segurança)
     let style = 'a'; // visual escolhido em Configurações > Aplicativo (settings.json)
 
     function readRows(pane = document.getElementById('pane-side'), sel = '[role="row"]') {
@@ -293,6 +299,7 @@
     function show(name, info) {
         const popup = document.getElementById(POPUP_ID);
         if (!popup || (!on && !info.demo)) return;
+        hideNotice(); // mensagem nova tem prioridade
         const avatar = info.row.querySelector('img');
         const close = fill(popup, style, name, previewOf(info.row), avatar && avatar.src);
         // info.demo = prévia das Configurações: nada abre e nada é enviado
@@ -326,7 +333,34 @@
         hideTimer = setTimeout(hide, SHOW_MS);
     }
 
+    // aviso "IA leu" / "retida" dentro da janela (a bolinha tem o dela); pos: a topo, b canto de baixo
+    function notice({ title, text, icon }, pos = nPos, demo) {
+        const box = document.getElementById(NOTICE_ID);
+        const popup = document.getElementById(POPUP_ID);
+        if (!box || (!demo && (!nOn || (popup && popup.classList.contains('wl-show'))))) return;
+        box.className = `wl-pop wl-n wl-${pos === 'b' ? 'b' : 'a'}`;
+        let av;
+        if (icon) { av = el('img', 'wl-av'); av.src = icon; } else av = el('span', 'wl-av wl-warn', '!');
+        const body = el('div', 'wl-text');
+        body.append(el('div', 'wl-name', title), el('div', 'wl-preview', text));
+        const close = el('button', 'wl-close');
+        close.innerHTML = X;
+        close.title = 'Fechar';
+        const top = el('div', 'wl-top');
+        top.append(av, body, close);
+        box.replaceChildren(top);
+        box.onclick = hide; // clique ou × só fecha
+        box.classList.add('wl-show');
+        clearTimeout(noticeTimer);
+        noticeTimer = setTimeout(hide, SHOW_MS);
+    }
+    function hideNotice() {
+        const box = document.getElementById(NOTICE_ID);
+        if (box) box.classList.remove('wl-show');
+    }
+
     function hide() {
+        hideNotice();
         const popup = document.getElementById(POPUP_ID);
         if (popup) popup.classList.remove('wl-show');
         const layer = document.getElementById('wl-preview-layer');
@@ -334,7 +368,7 @@
     }
 
     // "Ver na tela": finge uma conversa aberta e chama o aviso de verdade no visual escolhido
-    function preview(vis) {
+    function fakeChat() {
         hide();
         const layer = el('div', '');
         layer.id = 'wl-preview-layer';
@@ -344,12 +378,20 @@
             '<div class="type">Digite uma mensagem</div>';
         layer.onclick = hide;
         document.body.appendChild(layer);
+    }
+    function preview(vis) {
+        fakeChat();
         const row = document.createElement('div');
         row.innerHTML = '<span data-testid="last-msg-status" title="Oi, meu filho, já chegou em casa?"></span>';
         const keep = style;
         style = vis;
         show('Mãe', { row, demo: true });
         style = keep;
+    }
+    // "Ver na tela" do aviso "IA leu": o cartão de verdade, sem chamar nada
+    function previewNotice(pos) {
+        fakeChat();
+        notice({ title: 'Claude Code leu Grupo da firma (exemplo)', text: '12 mensagens', icon: window.__wlIcons && window.__wlIcons('claude') }, pos, true);
     }
 
     function scheduleScan() {
@@ -365,7 +407,14 @@
         popup.id = POPUP_ID;
         popup.className = 'wl-pop';
         document.body.appendChild(popup);
-        window.__TAURI_INTERNALS__.invoke('lite_get').then((s) => { style = s.popup_style || 'a'; on = s.popup_on !== false; }).catch(() => {});
+        const box = document.createElement('div');
+        box.id = NOTICE_ID;
+        box.className = 'wl-pop';
+        document.body.appendChild(box);
+        window.__TAURI_INTERNALS__.invoke('lite_get').then((s) => {
+            style = s.popup_style || 'a'; on = s.popup_on !== false;
+            nOn = s.notice_win !== false; nPos = s.notice_pos === 'b' ? 'b' : 'a';
+        }).catch(() => {});
 
         observer = new MutationObserver(scheduleScan);
         observer.observe(document.body, { childList: true, subtree: true, characterData: true });
@@ -378,11 +427,15 @@
         show,
         setStyle(v) { style = v; },
         setOn(v) { on = v; },
+        notice,
+        previewNotice,
+        setNotice(v, p) { nOn = v; nPos = p; },
         destroy() {
             if (observer) observer.disconnect();
             clearTimeout(scanTimer);
             clearTimeout(hideTimer);
-            [POPUP_ID, POPUP_ID + '-style'].forEach(id => {
+            clearTimeout(noticeTimer);
+            [POPUP_ID, NOTICE_ID, POPUP_ID + '-style'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.remove();
             });

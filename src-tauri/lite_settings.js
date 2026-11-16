@@ -249,6 +249,7 @@
         ['aplicativo', 'Aplicativo', 'Segundo plano, iniciar com o Windows, downloads'],
     ];
 
+    const NPOS = [['a', 'Topo (padrão)'], ['b', 'Canto de baixo, à direita']];
     const POPUPS = [['a', 'A · Cartão no topo (padrão)'], ['b', 'B · Canto de baixo, à direita'], ['c', 'C · Pílula compacta no topo']];
 
     let state = null;     // lite_get: valores do app (conexões com a chave mascarada)
@@ -352,7 +353,11 @@
                 row('Avisar na bolinha quando reter', 'Mostra "1 mensagem retida" quando algo for guardado',
                     sw('filtro_avisar', state.filtro_avisar, 'Avisar na bolinha quando reter')) +
                 group('Segurança') +
-                row('Avisar quando uma IA ler', 'A bolinha mostra qual conexão leu, qual conversa e quantas mensagens', sw('mcp_notify', state.mcp_notify, 'Avisar quando uma IA ler')) +
+                row('Avisar quando uma IA ler', 'Mostra qual conexão leu, qual conversa e quantas mensagens', sw('mcp_notify', state.mcp_notify, 'Avisar quando uma IA ler')) +
+                row('Mostrar também na janela', 'Com a bolinha ativa, só ela avisa', sw('notice_win', state.notice_win, 'Mostrar também na janela')) +
+                lbl('Onde aparece') +
+                NPOS.map(([id, name]) =>
+                    `<div class="wl-choice${state.notice_win && state.mcp_notify ? '' : ' wl-fade'}" role="radio" tabindex="0" aria-checked="${state.notice_pos === id}" data-npos="${id}"><div class="wl-lbl" style="margin:0;padding:0"><i></i><span style="flex:1">${name}</span><button class="wl-btn" data-nsee="${id}">Ver na tela</button></div></div>`).join('') +
                 `<div class="wl-bubble"><i style="background:#fff">${APP_ICONS.gemini.replace(/(width|height)="34"/g, '$1="22"')}</i><div><div class="wl-n">Gemini CLI leu Grupo da firma (exemplo)</div><div class="wl-m">402 mensagens</div></div></div>` +
                 (cs.length ? row('<span class="wl-danger">Revogar todas as conexões</span>', 'Todos os apps perdem o acesso de uma vez',
                     '<button class="wl-btn wl-danger" data-act="todas">Revogar todas</button>') : '');
@@ -569,6 +574,15 @@
     }
 
     async function onClick(e) {
+        const nsee = e.target.closest('[data-nsee]');
+        if (nsee) return window.__wlPopup.previewNotice(nsee.dataset.nsee);
+        const npos = e.target.closest('[data-npos]');
+        if (npos) {
+            state.notice_pos = npos.dataset.npos;
+            window.__wlPopup.setNotice(state.notice_win, state.notice_pos);
+            invoke('lite_notice_pos', { pos: state.notice_pos }).catch(() => {});
+            return render();
+        }
         const see = e.target.closest('[data-see]');
         if (see) return window.__wlPopup.preview(see.dataset.see);
         const choice = e.target.closest('[data-pop]');
@@ -632,6 +646,7 @@
         if (k.startsWith('b.')) { state.bubble[k.slice(2)] = on; render(); return saveBubble(); }
         state = await invoke('lite_set', { key: k, on });
         if (k === 'popup_on') window.__wlPopup.setOn(state.popup_on);
+        if (k === 'notice_win') window.__wlPopup.setNotice(state.notice_win, state.notice_pos);
         render();
         if (k === 'filtro_ia' && on) checkOllama(false);
     }

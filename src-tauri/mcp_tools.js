@@ -224,9 +224,13 @@
     return payload;
   }
 
-  // aviso próprio da bolinha (sem Responder, sem som); icon = data URI do app, sem ele sai o "!" amarelo
+  // aviso próprio da bolinha (sem Responder, sem som); icon = data URI do app, sem ele sai o "!" amarelo.
+  // Sem bolinha, o app devolve false e o mesmo cartão aparece dentro da janela.
   function bolinha(title, text, icon) {
-    try { invoke('bubble_notice', { title, text, icon: icon || null }).catch(() => {}); } catch (e) {}
+    try {
+      invoke('bubble_notice', { title, text, icon: icon || null })
+        .then((naBolinha) => { if (!naBolinha && window.__wlPopup) window.__wlPopup.notice({ title, text, icon }); }).catch(() => {});
+    } catch (e) {}
   }
   // um aviso por leitura; o texto retido nunca vai para a bolinha. Retenção nova vence o "<conexão> leu".
   function avisarLeitura(ctx, nome, resumo, novas, verbo = 'leu') {

@@ -25,6 +25,9 @@ struct Settings {
     mcp_notify: AtomicBool,
     /// aviso de mensagem nova dentro da conversa ligado (a escolha do visual fica em `popup_style`)
     popup_on: AtomicBool,
+    /// aviso "IA leu" também na janela principal (Segurança) e onde aparece (`a` topo, `b` canto de baixo)
+    notice_win: AtomicBool,
+    notice_pos: Mutex<String>,
     /// opções da bolinha (cor, contador, prévia, som, segundos); None = nunca salvas
     bubble: Mutex<Option<Value>>,
     /// visual do aviso de mensagem dentro da conversa: "a" (cartão), "b" (canto) ou "c" (pílula)
@@ -169,6 +172,10 @@ fn popup_style_clean(v: &str) -> &'static str {
     }
 }
 
+fn notice_pos_clean(v: &str) -> &'static str {
+    if v == "b" { "b" } else { "a" }
+}
+
 fn read_settings(app: &AppHandle) -> Value {
     settings_path(app)
         .and_then(|path| fs::read_to_string(path).ok())
@@ -185,6 +192,8 @@ fn load_settings(json: &Value) -> Settings {
         mcp_enabled: flag("mcp_enabled", false),
         mcp_notify: flag("mcp_notify", true),
         popup_on: flag("popup_on", true),
+        notice_win: flag("notice_win", true),
+        notice_pos: Mutex::new(notice_pos_clean(json["notice_pos"].as_str().unwrap_or("")).into()),
         bubble: Mutex::new(json["bubble"].is_object().then(|| bubble_clean(&json["bubble"]))),
         popup_style: Mutex::new(popup_style_clean(json["popup_style"].as_str().unwrap_or("")).into()),
         // desligada por padrão: usa a placa de vídeo
@@ -203,6 +212,8 @@ fn save_settings(app: &AppHandle) {
         "mcp_enabled": settings.mcp_enabled.load(Ordering::Relaxed),
         "mcp_notify": settings.mcp_notify.load(Ordering::Relaxed),
         "popup_on": settings.popup_on.load(Ordering::Relaxed),
+        "notice_win": settings.notice_win.load(Ordering::Relaxed),
+        "notice_pos": *settings.notice_pos.lock().unwrap(),
         "bubble": *settings.bubble.lock().unwrap(),
         "popup_style": *settings.popup_style.lock().unwrap(),
         "filtro_ia": settings.filtro_ia.load(Ordering::Relaxed),
@@ -305,9 +316,12 @@ fn bubble_message(app: AppHandle, chat: String, text: String, avatar: Option<Str
 /// Aviso do app (uma IA leu, mensagem retida): cartão próprio, sem Responder e sem som.
 /// `icon` é um data URI redondo pronto; sem ele, a bolinha desenha o "!" amarelo.
 #[tauri::command]
-fn bubble_notice(app: AppHandle, title: String, text: String, icon: Option<String>) {
+/// Devolve false quando a bolinha não existe: aí quem chamou mostra o aviso na janela.
+fn bubble_notice(app: AppHandle, title: String, text: String, icon: Option<String>) -> bool {
     let payload = serde_json::json!({ "title": title, "text": text, "icon": icon });
+    let on = app.get_webview_window("bubble").is_some();
     eval_in(&app, "bubble", format!("window.wlNotice && window.wlNotice({payload})"));
+    on
 }
 
 #[tauri::command]
@@ -395,6 +409,8 @@ fn lite_state(app: &AppHandle) -> Value {
         "autostart": autostart(),
         "popup_style": *s.popup_style.lock().unwrap(),
         "popup_on": s.popup_on.load(Ordering::Relaxed),
+        "notice_win": s.notice_win.load(Ordering::Relaxed),
+        "notice_pos": *s.notice_pos.lock().unwrap(),
         "filtro_ia": s.filtro_ia.load(Ordering::Relaxed),
         "filtro_avisar": s.filtro_avisar.load(Ordering::Relaxed),
         "bubble": bubble_opts_get(app.clone())["opts"],
@@ -418,6 +434,7 @@ fn lite_set(app: AppHandle, key: String, on: bool) -> Value {
         "ask_download_path" => (&s.ask_download_path, Some(&tray.ask_download)),
         "mcp_notify" => (&s.mcp_notify, None),
         "popup_on" => (&s.popup_on, None),
+        "notice_win" => (&s.notice_win, None),
         "filtro_ia" => (&s.filtro_ia, None),
         "filtro_avisar" => (&s.filtro_avisar, None),
         "autostart" => {
@@ -443,6 +460,13 @@ fn lite_set(app: AppHandle, key: String, on: bool) -> Value {
 #[tauri::command]
 fn lite_popup_style(app: AppHandle, style: String) {
     *app.state::<Settings>().popup_style.lock().unwrap() = popup_style_clean(&style).into();
+    save_settings(&app);
+}
+
+/// Onde o aviso "IA leu" aparece dentro da janela.
+#[tauri::command]
+fn lite_notice_pos(app: AppHandle, pos: String) {
+    *app.state::<Settings>().notice_pos.lock().unwrap() = notice_pos_clean(&pos).into();
     save_settings(&app);
 }
 
@@ -684,6 +708,7 @@ fn main() {
             lite_get,
             lite_set,
             lite_popup_style,
+            lite_notice_pos,
             mcp::mcp_result,
             mcp::mcp_conexao,
             mcp::mcp_copiar,
