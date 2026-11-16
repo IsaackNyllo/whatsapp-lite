@@ -18,6 +18,10 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Manager};
 
 const OLLAMA: &str = "127.0.0.1:11434";
+/// desenvolvimento: WL_OLLAMA=127.0.0.1:9 testa o ramo "Ollama indisponível" sem parar o Ollama
+fn ollama() -> String {
+    std::env::var("WL_OLLAMA").unwrap_or_else(|_| OLLAMA.into())
+}
 const MODELO: &str = "gemma4:e4b";
 const LOTE: usize = 100;
 const CORTE: usize = 500;
@@ -170,7 +174,7 @@ pub fn verificar(app: &AppHandle, itens: Vec<Item>, ia: bool) -> Value {
             Err(String::new())
         } else {
             let textos: Vec<&str> = lote.iter().map(|(it, _)| it.texto.as_str()).collect();
-            classificar(OLLAMA, &textos)
+            classificar(&ollama(), &textos)
         };
         match resultado {
             Ok(nums) => {
@@ -390,7 +394,7 @@ pub fn filtro_minhas(app: AppHandle, regras: Vec<Value>) -> Value {
 pub async fn filtro_ollama(app: AppHandle) -> Value {
     let r = tauri::async_runtime::spawn_blocking(move || {
         let inicio = Instant::now();
-        let r = http(OLLAMA, "GET", "/api/tags", "", Duration::from_secs(5)).and_then(|corpo| {
+        let r = http(&ollama(), "GET", "/api/tags", "", Duration::from_secs(5)).and_then(|corpo| {
             let v: Value = serde_json::from_str(&corpo).map_err(|_| "resposta do Ollama não é JSON".to_string())?;
             let tem = v["models"].as_array().is_some_and(|m| m.iter().any(|m| m["name"] == MODELO));
             if tem { Ok(()) } else { Err(format!("o modelo {MODELO} não está no Ollama")) }

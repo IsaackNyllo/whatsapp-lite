@@ -119,6 +119,7 @@
         #${VIEW} .wl-add input, #${VIEW} .wl-add select, #${VIEW} .wl-test input { background: var(--wl-field); color: ${FG}; border: 0;
             border-radius: 18px; padding: 8px 14px; font-family: inherit; font-size: 14px; min-width: 0; outline: none; }
         #${VIEW} .wl-add input { flex: 1 1 200px; }
+        #${VIEW} .wl-add select { flex: none; width: auto; }
         #${VIEW} .wl-test { margin: 6px 0 0; padding: 12px 14px; border-radius: 12px; border: 1px dashed var(--wl-line2); }
         #${VIEW} .wl-test input { width: 100%; box-sizing: border-box; }
         #${VIEW} .wl-verdict { margin-top: 10px; font-size: 13.5px; min-height: 20px; }
