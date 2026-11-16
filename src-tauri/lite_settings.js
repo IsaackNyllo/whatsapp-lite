@@ -597,7 +597,7 @@
                 : ['off', 'Desligado: a IA vê só [áudio 0:42]'];
             return row('Transcrever áudios', 'Áudio vira texto aqui no PC, para as IAs com "Pode ler"', sw('audio_on', a.ligado, 'Transcrever áudios')) +
                 `<div class="wl-status ${cls}"><i></i>${txt}</div>` +
-                dica('audio', 'Cada áudio novo, de todas as conversas e grupos, é transcrito assim que chega, um por vez e com pouca CPU. O áudio nunca sai do PC: fica só o texto, guardado sem prazo. O WhatsApp apaga a mídia em 16 a 19 dias; o que não foi transcrito até lá fica "expirado".') +
+                dica('audio', 'Cada áudio novo, de todas as conversas e grupos, é transcrito assim que chega, um por vez e com pouca CPU. Ao ligar e a cada abertura do app, os áudios dos últimos 7 dias também entram na fila, em segundo plano. O áudio nunca sai do PC: fica só o texto, guardado sem prazo. O WhatsApp apaga a mídia em 16 a 19 dias; o que não foi transcrito até lá fica "expirado".') +
                 group('Motor') +
                 row('whisper.cpp · modelo small', 'Só CPU, neste PC · ≈ ' + mb(a.total) + ' MB',
                     a.motor ? '<button class="wl-btn wl-danger" data-act="apagar_motor">Apagar motor</button>'

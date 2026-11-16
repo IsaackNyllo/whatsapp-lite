@@ -464,7 +464,7 @@ fn aviso(comando: &str, alvo: &str, on: bool) -> Option<&'static str> {
         ("lite_set", "mcp_notify", false) => "Desligar o aviso quando uma IA ler?\n\nVocê deixa de ver quando um app lê suas conversas.",
         ("lite_set", "notice_win", false) => "Desligar o aviso de leitura na janela?\n\nCom a janela aberta, você deixa de ver quando um app lê suas conversas.",
         ("lite_set", "filtro_avisar", false) => "Desligar o aviso de mensagem retida?\n\nVocê deixa de ver quando o filtro segura uma mensagem.",
-        ("lite_set", "audio_on", true) => "Transcrever os áudios das suas conversas?\n\nCada áudio que chegar, de todas as conversas e grupos, é baixado e transformado em texto neste computador. O áudio não sai do PC. O texto fica guardado no app e as conexões com \"Pode ler\" passam a ler o que foi falado.",
+        ("lite_set", "audio_on", true) => "Transcrever os áudios das suas conversas?\n\nCada áudio que chegar, e os dos últimos 7 dias de todas as conversas e grupos, é baixado e transformado em texto neste computador (em segundo plano, um por vez). O áudio não sai do PC. O texto fica guardado no app e as conexões com \"Pode ler\" passam a ler o que foi falado.",
         ("lite_set", "mcp_enabled", true) => "Permitir que IAs leiam suas conversas?\n\nAs conexões com \"Pode ler\" passam a ver todas as suas conversas neste computador.",
         // escrever (Fase 15): tudo que aumenta o poder da IA; desligar, tirar canal e descer o limite seguem sem caixa
         ("mcp_escrita", "ligar", true) => "Permitir que IAs enviem mensagens pelo seu WhatsApp?\n\nElas só poderão escrever texto, nos canais da lista, e só nas conexões em que você ligar \"Pode escrever\".",
