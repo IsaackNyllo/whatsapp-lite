@@ -22,6 +22,8 @@ struct Settings {
     mcp_enabled: AtomicBool,
     /// "Avisar quando uma IA ler": balão na bolinha a cada leitura
     mcp_notify: AtomicBool,
+    /// aviso de mensagem nova dentro da conversa ligado (a escolha do visual fica em `popup_style`)
+    popup_on: AtomicBool,
     /// trocado pela tela "Conectores de IA"; nunca vai para a página do WhatsApp
     mcp_token: Mutex<String>,
     /// opções da bolinha (cor, contador, prévia, som, segundos); None = nunca salvas
@@ -176,6 +178,7 @@ fn load_settings(app: &AppHandle) -> Settings {
         ask_download_path: flag("ask_download_path", true),
         mcp_enabled: flag("mcp_enabled", false),
         mcp_notify: flag("mcp_notify", true),
+        popup_on: flag("popup_on", true),
         mcp_token: Mutex::new(token.unwrap_or_else(mcp::new_token)),
         bubble: Mutex::new(json["bubble"].is_object().then(|| bubble_clean(&json["bubble"]))),
         popup_style: Mutex::new(popup_style_clean(json["popup_style"].as_str().unwrap_or("")).into()),
@@ -190,6 +193,7 @@ fn save_settings(app: &AppHandle) {
         "ask_download_path": settings.ask_download_path.load(Ordering::Relaxed),
         "mcp_enabled": settings.mcp_enabled.load(Ordering::Relaxed),
         "mcp_notify": settings.mcp_notify.load(Ordering::Relaxed),
+        "popup_on": settings.popup_on.load(Ordering::Relaxed),
         "mcp_token": *settings.mcp_token.lock().unwrap(),
         "bubble": *settings.bubble.lock().unwrap(),
         "popup_style": *settings.popup_style.lock().unwrap(),
@@ -371,6 +375,7 @@ fn lite_state(app: &AppHandle) -> Value {
         "ask_download_path": s.ask_download_path.load(Ordering::Relaxed),
         "autostart": autostart(),
         "popup_style": *s.popup_style.lock().unwrap(),
+        "popup_on": s.popup_on.load(Ordering::Relaxed),
         "bubble": bubble_opts_get(app.clone())["opts"],
     })
 }
@@ -390,6 +395,7 @@ fn lite_set(app: AppHandle, key: String, on: bool) -> Value {
         "run_in_background" => (&s.run_in_background, Some(&tray.background)),
         "ask_download_path" => (&s.ask_download_path, Some(&tray.ask_download)),
         "mcp_notify" => (&s.mcp_notify, None),
+        "popup_on" => (&s.popup_on, None),
         "autostart" => {
             if let Err(e) = set_autostart(on) {
                 eprintln!("Erro ao mudar o início com o Windows: {}", e);

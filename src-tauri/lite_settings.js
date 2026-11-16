@@ -97,6 +97,7 @@
             box-shadow: 0 4px 14px rgba(0,0,0,.5); }
         #${VIEW} .wl-choice { box-sizing: border-box; border: 2px solid ${LINE}; border-radius: 12px; padding: 10px 12px 12px;
             margin: 0 0 10px; cursor: pointer; }
+        #${VIEW} .wl-choice.wl-fade { opacity: .45; }
         #${VIEW} .wl-choice:hover { background: ${HOVER}; }
         #${VIEW} .wl-choice:focus-visible { outline: 2px solid ${FG}; outline-offset: 2px; }
         #${VIEW} .wl-choice[aria-checked="true"] { border-color: #00a884; }
@@ -181,9 +182,10 @@
             row('Rodar em segundo plano', 'Fechar a janela deixa o app na bandeja', sw('run_in_background', state.run_in_background, 'Rodar em segundo plano')) +
             row('Perguntar onde salvar downloads', '', sw('ask_download_path', state.ask_download_path, 'Perguntar onde salvar downloads')) +
             group('Aviso de mensagem nova') +
+            row('Mostrar aviso de mensagem nova', '', sw('popup_on', state.popup_on, 'Mostrar aviso de mensagem nova')) +
             `<div class="wl-s" style="padding-bottom:10px">Aparece quando chega mensagem de outra conversa enquanto você está numa conversa. Clicar nele abre a conversa.</div>` +
             POPUPS.map(([id, name]) =>
-                `<div class="wl-choice" role="radio" tabindex="0" aria-checked="${state.popup_style === id}" data-pop="${id}"><div class="wl-lbl"><i></i><span style="flex:1">${name}</span><button class="wl-btn" data-see="${id}">Ver na tela</button></div><div data-ex="${id}"></div></div>`).join('')],
+                `<div class="wl-choice${state.popup_on ? '' : ' wl-fade'}" role="radio" tabindex="0" aria-checked="${state.popup_style === id}" data-pop="${id}"><div class="wl-lbl"><i></i><span style="flex:1">${name}</span><button class="wl-btn" data-see="${id}">Ver na tela</button></div><div data-ex="${id}"></div></div>`).join('')],
     };
 
     function viewEl() { return document.getElementById(VIEW); }
@@ -297,6 +299,7 @@
         if (k === 'bubble_mode') return on && invoke('bubble_enter');
         if (k.startsWith('b.')) { state.bubble[k.slice(2)] = on; render(); return saveBubble(); }
         state = await invoke('lite_set', { key: k, on });
+        if (k === 'popup_on') window.__wlPopup.setOn(state.popup_on);
         render();
     }
 

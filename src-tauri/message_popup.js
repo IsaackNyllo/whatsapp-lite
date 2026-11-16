@@ -76,6 +76,7 @@
     let scanTimer = null;
     let hideTimer = null;
     let started = false;
+    let on = true; // "Mostrar aviso de mensagem nova" (Configurações > Aplicativo)
     let style = 'a'; // visual escolhido em Configurações > Aplicativo (settings.json)
 
     function readRows(pane = document.getElementById('pane-side'), sel = '[role="row"]') {
@@ -291,7 +292,7 @@
 
     function show(name, info) {
         const popup = document.getElementById(POPUP_ID);
-        if (!popup) return;
+        if (!popup || (!on && !info.demo)) return;
         const avatar = info.row.querySelector('img');
         const close = fill(popup, style, name, previewOf(info.row), avatar && avatar.src);
         // info.demo = prévia das Configurações: nada abre e nada é enviado
@@ -356,15 +357,15 @@
     }
 
     function init() {
-        const style = document.createElement('style');
-        style.id = POPUP_ID + '-style';
-        style.textContent = CSS;
-        document.head.appendChild(style);
+        const tag = document.createElement('style');
+        tag.id = POPUP_ID + '-style';
+        tag.textContent = CSS;
+        document.head.appendChild(tag);
         const popup = document.createElement('div');
         popup.id = POPUP_ID;
         popup.className = 'wl-pop';
         document.body.appendChild(popup);
-        window.__TAURI_INTERNALS__.invoke('lite_get').then((s) => { style = s.popup_style || 'a'; }).catch(() => {});
+        window.__TAURI_INTERNALS__.invoke('lite_get').then((s) => { style = s.popup_style || 'a'; on = s.popup_on !== false; }).catch(() => {});
 
         observer = new MutationObserver(scheduleScan);
         observer.observe(document.body, { childList: true, subtree: true, characterData: true });
@@ -376,6 +377,7 @@
         preview,
         show,
         setStyle(v) { style = v; },
+        setOn(v) { on = v; },
         destroy() {
             if (observer) observer.disconnect();
             clearTimeout(scanTimer);
