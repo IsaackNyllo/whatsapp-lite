@@ -3,30 +3,241 @@
 // Quem lê o WhatsApp é a página (mcp_tools.js); aqui só a ponte e o protocolo.
 
 use std::collections::HashMap;
+use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 
 pub const PORT: u16 = 47800;
+const URL: &str = "http://127.0.0.1:47800/mcp";
 const MAX_BODY: usize = 1024 * 1024;
 const MAX_HEAD: u64 = 16 * 1024;
 const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
 const VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const DEFAULT_VERSION: &str = "2025-06-18";
 
+/// Resposta da página: o texto para a IA e o uso (conversa, quantidade), que fica só no app.
+type Answer = Result<(String, Option<Value>), String>;
+
 /// Chamadas esperando a resposta da página.
 #[derive(Default)]
 pub struct Bridge {
     listening: AtomicBool,
     next_id: AtomicU64,
-    pending: Mutex<HashMap<u64, Sender<Result<String, String>>>>,
+    pending: Mutex<HashMap<u64, Sender<Answer>>>,
+}
+
+// ---- Conexões: uma chave por app ----
+
+const HIST_MAX: usize = 200;
+const TIPOS: [&str; 5] = ["claude", "gemini", "codex", "antigravity", "outro"];
+
+/// Uma leitura no histórico: só hora, ferramenta, conversa e quantidade. Nunca o texto.
+#[derive(Serialize, Deserialize, Clone)]
+struct Leitura {
+    t: u64,
+    ferramenta: String,
+    conversa: Option<String>,
+    n: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Conexao {
+    id: u64,
+    nome: String,
+    tipo: String,
+    /// em texto, só no arquivo do app ("copiar de novo"); a página recebe a versão mascarada
+    chave: String,
+    ativa: bool,
+    criada: u64,
+    ultima: Option<u64>,
+    chamadas: u64,
+    mensagens: u64,
+    imagens: u64,
+    historico: Vec<Leitura>,
+}
+
+/// As conexões e o histórico delas, em `mcp-conexoes.json` (dados locais do app, não Roaming).
+pub struct Conexoes {
+    arquivo: Option<PathBuf>,
+    lista: Mutex<Vec<Conexao>>,
+}
+
+fn agora() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// "wlk_9f3a••••••••": a chave antiga (sem prefixo) mostra só 4 caracteres.
+fn mascara(chave: &str) -> String {
+    let n = if chave.starts_with("wlk_") { 8 } else { 4 };
+    format!("{}••••••••", chave.get(..n).unwrap_or(""))
+}
+
+fn conexao(id: u64, nome: &str, tipo: &str, chave: String) -> Conexao {
+    Conexao {
+        id, nome: nome.into(), tipo: tipo.into(), chave, ativa: true, criada: agora(), ultima: None,
+        chamadas: 0, mensagens: 0, imagens: 0, historico: Vec::new(),
+    }
+}
+
+impl Conexoes {
+    /// Sem o arquivo, a chave única antiga (`mcp_token`) vira a conexão "Claude Code", com o mesmo valor.
+    /// Devolve true quando migrou e gravou: só aí o settings.json pode perder o `mcp_token`.
+    pub fn load(dir: Option<PathBuf>, legado: Option<&str>) -> (Conexoes, bool) {
+        let arquivo = dir.map(|d| d.join("mcp-conexoes.json"));
+        let texto = arquivo.as_ref().and_then(|a| fs::read_to_string(a).ok());
+        let legado = legado.filter(|k| !k.is_empty() && texto.is_none());
+        let lista = match (&texto, legado) {
+            (Some(t), _) => serde_json::from_str(t).unwrap_or_else(|_| {
+                // não sobrescreve um arquivo estragado: guarda ao lado
+                eprintln!("MCP: mcp-conexoes.json ilegível, guardado como .bad");
+                if let Some(a) = &arquivo {
+                    let _ = fs::rename(a, a.with_extension("json.bad"));
+                }
+                Vec::new()
+            }),
+            (None, Some(k)) => vec![conexao(1, "Claude Code", "claude", k.to_string())],
+            (None, None) => Vec::new(),
+        };
+        let c = Conexoes { arquivo, lista: Mutex::new(lista) };
+        let migrou = legado.is_some() && c.salvar(&c.lista.lock().unwrap());
+        (c, migrou)
+    }
+
+    /// Escreve num temporário e troca: queda no meio não estraga as chaves.
+    fn salvar(&self, lista: &[Conexao]) -> bool {
+        let Some(a) = &self.arquivo else { return false };
+        let tmp = a.with_extension("tmp");
+        let r = a
+            .parent()
+            .map_or(Ok(()), fs::create_dir_all)
+            .and_then(|_| fs::write(&tmp, serde_json::to_string(lista).unwrap_or_default()))
+            .and_then(|_| fs::rename(&tmp, a));
+        if let Err(e) = &r {
+            eprintln!("MCP: não salvou as conexões: {e}");
+        }
+        r.is_ok()
+    }
+
+    /// Id da conexão ativa dona da chave. Compara com todas, sem parar na primeira.
+    pub fn autentica(&self, dada: &str) -> Option<u64> {
+        self.lista.lock().unwrap().iter().fold(None, |achou, c| {
+            if same_token(dada, &c.chave) && c.ativa { Some(c.id) } else { achou }
+        })
+    }
+
+    fn nome(&self, id: u64) -> String {
+        self.lista.lock().unwrap().iter().find(|c| c.id == id).map_or("IA".into(), |c| c.nome.clone())
+    }
+
+    /// Conta a chamada; com `uso` (a leitura deu certo), soma e anota no histórico.
+    fn registrar(&self, id: u64, ferramenta: &str, uso: Option<&Value>) {
+        let mut lista = self.lista.lock().unwrap();
+        let Some(c) = lista.iter_mut().find(|c| c.id == id) else { return };
+        c.chamadas += 1;
+        if let Some(u) = uso {
+            let n = u["n"].as_u64().unwrap_or(0);
+            match ferramenta {
+                "ler_mensagens" => c.mensagens += n,
+                "ver_imagens" => c.imagens += n,
+                _ => {}
+            }
+            let t = agora();
+            c.ultima = Some(t);
+            let conversa = u["conversa"].as_str().map(|s| s.chars().take(100).collect());
+            c.historico.push(Leitura { t, ferramenta: ferramenta.into(), conversa, n });
+            let sobra = c.historico.len().saturating_sub(HIST_MAX);
+            c.historico.drain(..sobra);
+        }
+        self.salvar(&lista);
+    }
+
+    /// Ações da tela. Devolve o id da conexão (a nova, ao criar) ou None se não fez nada.
+    fn acao(&self, acao: &str, id: u64, nome: &str, tipo: &str) -> Option<u64> {
+        let mut lista = self.lista.lock().unwrap();
+        let mut feito = Some(id);
+        match acao {
+            "criar" if TIPOS.contains(&tipo) => {
+                let novo = lista.iter().map(|c| c.id).max().unwrap_or(0) + 1;
+                let nome: String = nome.trim().chars().take(60).collect();
+                let nome = if nome.is_empty() { "Conexão".into() } else { nome };
+                lista.push(conexao(novo, &nome, tipo, nova_chave()?));
+                feito = Some(novo);
+            }
+            "ativar" | "pausar" | "renovar" | "limpar" => {
+                let c = lista.iter_mut().find(|c| c.id == id)?;
+                match acao {
+                    "renovar" => c.chave = nova_chave()?, // a antiga deixa de valer na hora
+                    "limpar" => c.historico.clear(),
+                    _ => c.ativa = acao == "ativar",
+                }
+            }
+            "revogar" => {
+                let antes = lista.len();
+                lista.retain(|c| c.id != id);
+                if lista.len() == antes {
+                    return None;
+                }
+            }
+            "revogar_todas" => lista.clear(),
+            _ => return None,
+        }
+        self.salvar(&lista);
+        feito
+    }
+
+    /// O que a tela mostra: tudo, com a chave mascarada (também dentro do comando).
+    pub fn visao(&self) -> Value {
+        let lista = self.lista.lock().unwrap();
+        lista
+            .iter()
+            .map(|c| {
+                let m = mascara(&c.chave);
+                json!({
+                    "id": c.id, "nome": c.nome, "tipo": c.tipo, "ativa": c.ativa, "criada": c.criada, "ultima": c.ultima,
+                    "chamadas": c.chamadas, "mensagens": c.mensagens, "imagens": c.imagens,
+                    "chave": m, "conectar": connect_command(&c.tipo, &m),
+                    "historico": c.historico.iter().rev().collect::<Vec<_>>(),
+                })
+            })
+            .collect()
+    }
+
+    /// Texto com a chave real, só para a área de transferência.
+    fn para_copiar(&self, id: u64, oque: &str) -> Option<String> {
+        let lista = self.lista.lock().unwrap();
+        let c = lista.iter().find(|c| c.id == id)?;
+        match oque {
+            "conectar" => connect_command(&c.tipo, &c.chave),
+            "chave" => Some(c.chave.clone()),
+            "endereco" => Some(URL.into()),
+            _ => None,
+        }
+    }
+}
+
+/// Criar, pausar/ativar, renovar a chave, revogar, revogar todas, limpar histórico. Nunca devolve a chave.
+#[tauri::command]
+pub fn mcp_conexao(app: AppHandle, acao: String, id: Option<u64>, nome: Option<String>, tipo: Option<String>) -> Value {
+    let conexoes = app.state::<Conexoes>();
+    let r = conexoes.acao(&acao, id.unwrap_or(0), nome.as_deref().unwrap_or(""), tipo.as_deref().unwrap_or(""));
+    json!({ "ok": r.is_some(), "id": r, "conexoes": conexoes.visao() })
+}
+
+/// Copia comando, chave ou endereço de uma conexão; a chave real fica no Rust.
+#[tauri::command]
+pub fn mcp_copiar(conexoes: State<Conexoes>, id: u64, oque: String) -> bool {
+    let Some(texto) = conexoes.para_copiar(id, &oque) else { return false };
+    copy_to_clipboard(&texto).map_err(|e| eprintln!("Erro ao copiar: {e}")).is_ok()
 }
 
 pub struct Request {
@@ -43,8 +254,8 @@ impl Request {
     }
 }
 
-/// 32 bytes do gerador criptográfico do sistema, em hex. Vazio se o sistema falhar.
-pub fn new_token() -> String {
+/// "wlk_" + 32 bytes do gerador criptográfico do sistema, em hex. None se o sistema falhar.
+fn nova_chave() -> Option<String> {
     let mut buf = [0u8; 32];
     #[cfg(windows)]
     let ok = unsafe {
@@ -56,15 +267,15 @@ pub fn new_token() -> String {
         .and_then(|mut f| f.read_exact(&mut buf))
         .is_ok();
     if !ok {
-        eprintln!("MCP: falha ao gerar o token");
-        return String::new();
+        eprintln!("MCP: falha ao gerar a chave");
+        return None;
     }
-    buf.iter().map(|b| format!("{b:02x}")).collect()
+    Some(format!("wlk_{}", buf.iter().map(|b| format!("{b:02x}")).collect::<String>()))
 }
 
-/// Comando (ou trecho de configuração, no Codex) para ligar o app de IA ao servidor.
-pub fn connect_command(client: &str, token: &str) -> Option<String> {
-    let url = format!("http://127.0.0.1:{PORT}/mcp");
+/// Comando (ou trecho de configuração, no Codex e em "Outro app") para ligar o app de IA ao servidor.
+fn connect_command(client: &str, token: &str) -> Option<String> {
+    let url = URL;
     let header = format!("Authorization: Bearer {token}");
     Some(match client {
         "claude" => format!("claude mcp add --transport http --scope user whatsapp {url} --header \"{header}\""),
@@ -74,6 +285,8 @@ pub fn connect_command(client: &str, token: &str) -> Option<String> {
         "antigravity" => format!("agy mcp add --header \"{header}\" whatsapp {url}"),
         // learn.chatgpt.com/docs/extend/mcp: vai em ~/.codex/config.toml
         "codex" => format!("[mcp_servers.whatsapp]\nurl = \"{url}\"\nhttp_headers = {{ \"Authorization\" = \"Bearer {token}\" }}\n"),
+        // formato "mcpServers" comum; cada app muda um pouco (a chave é só hex: nada a escapar)
+        "outro" => format!("{{\n  \"mcpServers\": {{\n    \"whatsapp\": {{\n      \"type\": \"http\",\n      \"url\": \"{url}\",\n      \"headers\": {{ \"Authorization\": \"Bearer {token}\" }}\n    }}\n  }}\n}}"),
         _ => return None,
     })
 }
@@ -127,13 +340,12 @@ fn serve(app: &AppHandle, mut stream: TcpStream) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     let (status, body) = match read_request(&stream) {
         Ok(req) => {
-            let settings = app.state::<crate::Settings>();
-            let token = settings.mcp_token.lock().unwrap().clone();
+            let conexoes = app.state::<Conexoes>();
             handle(
                 &req,
-                &token,
-                settings.mcp_enabled.load(Ordering::Relaxed),
-                |tool, args| call_tool(app, tool, args),
+                app.state::<crate::Settings>().mcp_enabled.load(Ordering::Relaxed),
+                |chave| conexoes.autentica(chave),
+                |conexao, tool, args| call_tool(app, conexao, tool, args),
             )
         }
         Err(status) => (status, String::new()),
@@ -192,13 +404,14 @@ fn read_request(stream: &TcpStream) -> Result<Request, u16> {
     Ok(Request { method, path, headers, body })
 }
 
-fn call_tool(app: &AppHandle, tool: &str, args: &Value) -> Result<String, String> {
+fn call_tool(app: &AppHandle, conexao: u64, tool: &str, args: &Value) -> Result<String, String> {
     let bridge = app.state::<Bridge>();
+    let conexoes = app.state::<Conexoes>();
     let id = bridge.next_id.fetch_add(1, Ordering::Relaxed);
     let (tx, rx) = channel();
     bridge.pending.lock().unwrap().insert(id, tx);
-    let tool = serde_json::to_string(tool).unwrap_or_default();
-    // avisar = a bolinha mostra "IA leu ..." (opção "Avisar quando uma IA ler")
+    let nome = serde_json::to_string(tool).unwrap_or_default();
+    // avisar = a bolinha mostra "<conexão> leu ..." (opção "Avisar quando uma IA ler")
     let settings = app.state::<crate::Settings>();
     let notify = settings.mcp_notify.load(Ordering::Relaxed);
     // filtro: regras do usuário e "Avisar na bolinha quando reter"
@@ -206,19 +419,22 @@ fn call_tool(app: &AppHandle, tool: &str, args: &Value) -> Result<String, String
         "minhas": *settings.filtro_minhas.lock().unwrap(),
         "avisar": settings.filtro_avisar.load(Ordering::Relaxed),
     });
-    crate::eval_in(app, "main", format!("window.__wlMcp && window.__wlMcp({id}, {tool}, {args}, {notify}, {filtro})"));
-    let answer = rx.recv_timeout(TOOL_TIMEOUT);
+    let quem = serde_json::to_string(&conexoes.nome(conexao)).unwrap_or_default();
+    crate::eval_in(app, "main", format!("window.__wlMcp && window.__wlMcp({id}, {nome}, {args}, {notify}, {filtro}, {quem})"));
+    let answer = rx.recv_timeout(TOOL_TIMEOUT).unwrap_or_else(|_| Err("WhatsApp não respondeu a tempo".into()));
     bridge.pending.lock().unwrap().remove(&id);
-    answer.unwrap_or_else(|_| Err("WhatsApp não respondeu a tempo".into()))
+    conexoes.registrar(conexao, tool, answer.as_ref().ok().and_then(|(_, uso)| uso.as_ref()));
+    answer.map(|(text, _)| text)
 }
 
-/// A página do WhatsApp devolve o resultado de `window.__wlMcp`.
+/// A página do WhatsApp devolve o resultado de `window.__wlMcp`. `uso` (conversa e quantidade)
+/// fica no app para o consumo e o histórico; a IA nunca o vê.
 #[tauri::command]
-pub fn mcp_result(bridge: State<Bridge>, id: u64, result: Option<String>, error: Option<String>) {
+pub fn mcp_result(bridge: State<Bridge>, id: u64, result: Option<String>, error: Option<String>, uso: Option<Value>) {
     if let Some(tx) = bridge.pending.lock().unwrap().remove(&id) {
         let _ = tx.send(match error {
             Some(e) => Err(e),
-            None => Ok(result.unwrap_or_default()),
+            None => Ok((result.unwrap_or_default(), uso)),
         });
     }
 }
@@ -243,11 +459,12 @@ fn same_token(given: &str, token: &str) -> bool {
 }
 
 /// Lógica da requisição, sem rede: devolve (status HTTP, corpo).
+/// `auth`: chave do cabeçalho -> conexão ativa dona dela; `call` recebe a conexão.
 pub fn handle(
     req: &Request,
-    token: &str,
     enabled: bool,
-    call: impl Fn(&str, &Value) -> Result<String, String>,
+    auth: impl Fn(&str) -> Option<u64>,
+    call: impl Fn(u64, &str, &Value) -> Result<String, String>,
 ) -> (u16, String) {
     if req.path.split('?').next() != Some("/mcp") {
         return (404, String::new());
@@ -257,9 +474,9 @@ pub fn handle(
         return (403, String::new());
     }
     let given = req.header("authorization").and_then(|v| v.strip_prefix("Bearer "));
-    if !given.is_some_and(|g| same_token(g.trim(), token)) {
+    let Some(conexao) = given.and_then(|g| auth(g.trim())) else {
         return (401, String::new());
-    }
+    };
     if req.method != "POST" {
         return (405, String::new());
     }
@@ -296,7 +513,7 @@ pub fn handle(
                 Err((-32602, format!("Ferramenta desconhecida: {name}")))
             } else {
                 let args = if params["arguments"].is_object() { params["arguments"].clone() } else { json!({}) };
-                Ok(match call(name, &args) {
+                Ok(match call(conexao, name, &args) {
                     Ok(text) => content_of(text),
                     Err(e) => json!({"content": [{"type": "text", "text": e}], "isError": true}),
                 })
@@ -361,15 +578,31 @@ mod tests {
     use super::*;
 
     const TOKEN: &str = "abc123";
+    const INIT: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}"#;
 
-    fn post(body: &str, headers: &[(&str, &str)]) -> (u16, Value) {
-        let req = Request {
+    fn memoria(lista: Vec<Conexao>) -> Conexoes {
+        Conexoes { arquivo: None, lista: Mutex::new(lista) }
+    }
+
+    fn req(body: &str, headers: &[(&str, &str)]) -> Request {
+        Request {
             method: "POST".into(),
             path: "/mcp".into(),
             headers: headers.iter().map(|(n, v)| (n.to_string(), v.to_string())).collect(),
             body: body.as_bytes().to_vec(),
-        };
-        let (status, body) = handle(&req, TOKEN, true, |tool, _| Ok(format!("[\"{tool}\"]")));
+        }
+    }
+
+    /// Requisição contra as conexões dadas; a ferramenta falsa devolve o nome dela e a conexão.
+    fn com(c: &Conexoes, chave: &str, body: &str) -> (u16, Value) {
+        let bearer = format!("Bearer {chave}");
+        let (status, body) = handle(&req(body, &[("authorization", &bearer)]), true, |k| c.autentica(k), |id, tool, _| Ok(format!("[\"{tool}\",{id}]")));
+        (status, serde_json::from_str(&body).unwrap_or(Value::Null))
+    }
+
+    fn post(body: &str, headers: &[(&str, &str)]) -> (u16, Value) {
+        let c = memoria(vec![conexao(1, "Claude Code", "claude", TOKEN.into())]);
+        let (status, body) = handle(&req(body, headers), true, |k| c.autentica(k), |_, tool, _| Ok(format!("[\"{tool}\"]")));
         (status, serde_json::from_str(&body).unwrap_or(Value::Null))
     }
 
@@ -377,12 +610,128 @@ mod tests {
         post(body, &[("authorization", "Bearer abc123")])
     }
 
+    fn chave(c: &Conexoes, id: u64) -> String {
+        c.lista.lock().unwrap().iter().find(|x| x.id == id).unwrap().chave.clone()
+    }
+
+    fn pasta_temp(nome: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("wl-teste-{nome}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        d
+    }
+
+    #[test]
+    fn conexoes_chave_por_app() {
+        let c = memoria(Vec::new());
+        assert_eq!(com(&c, "", INIT).0, 401); // sem conexão nenhuma, nada entra
+        let a = c.acao("criar", 0, "  Gemini CLI  ", "gemini").unwrap();
+        let b = c.acao("criar", 0, "", "outro").unwrap();
+        assert!(c.acao("criar", 0, "x", "inventado").is_none());
+        let (ka, kb) = (chave(&c, a), chave(&c, b));
+        assert!(ka.starts_with("wlk_") && ka.len() == 68 && ka[4..].bytes().all(|x| x.is_ascii_hexdigit()) && ka != kb);
+
+        // certa / errada: 200 / 401; cada chave chega com a sua conexão
+        let call = r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ler_mensagens","arguments":{}}}"#;
+        assert_eq!(com(&c, &ka, call).1["result"]["content"][0]["text"], format!("[\"ler_mensagens\",{a}]"));
+        assert_eq!(com(&c, &kb, call).1["result"]["content"][0]["text"], format!("[\"ler_mensagens\",{b}]"));
+        assert_eq!(com(&c, "wlk_errada", INIT).0, 401);
+        assert_eq!(com(&c, &ka[..67], INIT).0, 401);
+
+        // pausada: 401 só nela; reativar volta
+        c.acao("pausar", a, "", "");
+        assert_eq!((com(&c, &ka, INIT).0, com(&c, &kb, INIT).0), (401, 200));
+        assert_eq!(chave(&c, a), ka, "pausar guarda a chave");
+        c.acao("ativar", a, "", "");
+        assert_eq!(com(&c, &ka, INIT).0, 200);
+
+        // renovar: a antiga cai na hora, a nova entra
+        c.acao("renovar", a, "", "");
+        let ka2 = chave(&c, a);
+        assert_ne!(ka2, ka);
+        assert_eq!((com(&c, &ka, INIT).0, com(&c, &ka2, INIT).0), (401, 200));
+
+        // revogar: some e dá 401; a outra continua
+        assert_eq!(c.acao("revogar", a, "", ""), Some(a));
+        assert!(c.acao("revogar", a, "", "").is_none());
+        assert_eq!((com(&c, &ka2, INIT).0, com(&c, &kb, INIT).0), (401, 200));
+        assert_eq!(c.visao().as_array().unwrap().len(), 1);
+
+        // revogar todas
+        c.acao("revogar_todas", 0, "", "");
+        assert_eq!(com(&c, &kb, INIT).0, 401);
+        assert!(c.visao().as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_pagina_so_ve_a_chave_mascarada() {
+        let c = memoria(Vec::new());
+        let id = c.acao("criar", 0, "Meu script", "outro").unwrap();
+        let k = chave(&c, id);
+        let v = c.visao().to_string();
+        assert!(!v.contains(&k) && !v.contains(&k[4..20]), "a visão não leva a chave");
+        assert!(v.contains(&format!("{}••••••••", &k[..8])));
+        assert_eq!(mascara("0123456789abcdef"), "0123••••••••");
+        // copiar leva a real; o trecho comum é JSON com a chave no Authorization
+        let trecho: Value = serde_json::from_str(&c.para_copiar(id, "conectar").unwrap()).unwrap();
+        assert_eq!(trecho["mcpServers"]["whatsapp"]["headers"]["Authorization"], format!("Bearer {k}"));
+        assert_eq!(trecho["mcpServers"]["whatsapp"]["url"], URL);
+        assert_eq!(c.para_copiar(id, "chave").unwrap(), k);
+        assert_eq!(c.para_copiar(id, "endereco").unwrap(), URL);
+        assert!(c.para_copiar(id, "outra").is_none() && c.para_copiar(99, "chave").is_none());
+    }
+
+    #[test]
+    fn migracao_preserva_a_chave() {
+        let dir = pasta_temp("migra");
+        let legado = "f".repeat(64);
+        let (c, migrou) = Conexoes::load(Some(dir.clone()), Some(&legado));
+        assert!(migrou);
+        assert_eq!(c.autentica(&legado), Some(1));
+        let v = c.visao();
+        assert_eq!((v[0]["nome"].as_str(), v[0]["tipo"].as_str(), v[0]["ativa"].as_bool()), (Some("Claude Code"), Some("claude"), Some(true)));
+        // abrir de novo lê o arquivo (o settings.json já não tem a chave) e a chave segue a mesma
+        let (c2, migrou2) = Conexoes::load(Some(dir.clone()), None);
+        assert!(!migrou2);
+        assert_eq!(c2.autentica(&legado), Some(1));
+        // com o arquivo existindo, um mcp_token velho não cria outra conexão
+        let (c3, _) = Conexoes::load(Some(dir.clone()), Some("outra"));
+        assert_eq!((c3.visao().as_array().unwrap().len(), c3.autentica("outra")), (1, None));
+        // sem pasta não há onde gravar: não conta como migrado (o settings.json guarda a chave)
+        assert!(!Conexoes::load(None, Some(&legado)).1);
+        // arquivo estragado não é sobrescrito
+        fs::write(dir.join("mcp-conexoes.json"), "{lixo").unwrap();
+        let (c4, _) = Conexoes::load(Some(dir.clone()), None);
+        assert!(c4.visao().as_array().unwrap().is_empty() && dir.join("mcp-conexoes.json.bad").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn historico_sem_texto_e_com_teto() {
+        let dir = pasta_temp("hist");
+        let (c, _) = Conexoes::load(Some(dir.clone()), Some(TOKEN));
+        let uso = json!({"conversa": "Grupo", "n": 402, "texto": "SEGREDO da mensagem", "mensagens": ["SEGREDO"]});
+        for _ in 0..250 {
+            c.registrar(1, "ler_mensagens", Some(&uso));
+        }
+        c.registrar(1, "ver_imagens", Some(&json!({"conversa": "Grupo", "n": 3})));
+        c.registrar(1, "ler_mensagens", None); // erro: conta a chamada, sem histórico
+        let arquivo = fs::read_to_string(dir.join("mcp-conexoes.json")).unwrap();
+        assert!(!arquivo.contains("SEGREDO"));
+        let v = &c.visao()[0];
+        assert_eq!(v["historico"].as_array().unwrap().len(), HIST_MAX);
+        assert_eq!(v["historico"][0]["ferramenta"], "ver_imagens"); // a mais nova primeiro
+        assert_eq!((v["chamadas"].as_u64(), v["mensagens"].as_u64(), v["imagens"].as_u64()), (Some(252), Some(250 * 402), Some(3)));
+        c.acao("limpar", 1, "", "");
+        assert!(c.visao()[0]["historico"].as_array().unwrap().is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn requests() {
-        let init = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}"#;
+        let init = INIT;
         assert_eq!(post(init, &[]).0, 401);
         assert_eq!(post(init, &[("authorization", "Bearer errado")]).0, 401);
-        assert_eq!(handle(&Request { method: "POST".into(), path: "/mcp".into(), headers: vec![("authorization".into(), "Bearer ".into())], body: vec![] }, "", true, |_, _| Ok(String::new())).0, 401);
+        assert_eq!(post(init, &[("authorization", "Bearer ")]).0, 401);
 
         let (status, body) = auth(init);
         assert_eq!(status, 200);
@@ -412,14 +761,12 @@ mod tests {
         assert!(!local_origin("http://localhost.evil.com"));
         assert!(!local_origin("http://127.0.0.1.evil.com"));
 
-        let (a, b) = (new_token(), new_token());
-        assert!(a.len() == 64 && a != b && a.bytes().all(|c| c.is_ascii_hexdigit()));
-
-        for client in ["claude", "gemini", "antigravity", "codex"] {
+        for client in TIPOS {
             let text = connect_command(client, "tok123").unwrap();
             assert!(text.contains("http://127.0.0.1:47800/mcp") && text.contains("Bearer tok123"), "{client}");
         }
-        assert!(connect_command("outro", "tok123").is_none());
+        assert!(connect_command("inventado", "tok123").is_none());
+        assert_eq!(URL, format!("http://127.0.0.1:{PORT}/mcp"));
     }
 
     #[test]

@@ -25,8 +25,6 @@ struct Settings {
     mcp_notify: AtomicBool,
     /// aviso de mensagem nova dentro da conversa ligado (a escolha do visual fica em `popup_style`)
     popup_on: AtomicBool,
-    /// trocado pela tela "Conectores de IA"; nunca vai para a página do WhatsApp
-    mcp_token: Mutex<String>,
     /// opções da bolinha (cor, contador, prévia, som, segundos); None = nunca salvas
     bubble: Mutex<Option<Value>>,
     /// visual do aviso de mensagem dentro da conversa: "a" (cartão), "b" (canto) ou "c" (pílula)
@@ -171,13 +169,15 @@ fn popup_style_clean(v: &str) -> &'static str {
     }
 }
 
-fn load_settings(app: &AppHandle) -> Settings {
-    let json = settings_path(app)
+fn read_settings(app: &AppHandle) -> Value {
+    settings_path(app)
         .and_then(|path| fs::read_to_string(path).ok())
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .unwrap_or_default();
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .unwrap_or_default()
+}
+
+fn load_settings(json: &Value) -> Settings {
     let flag = |key: &str, default| AtomicBool::new(json[key].as_bool().unwrap_or(default));
-    let token = json["mcp_token"].as_str().filter(|t| t.len() == 64).map(String::from);
 
     Settings {
         run_in_background: flag("run_in_background", true),
@@ -185,7 +185,6 @@ fn load_settings(app: &AppHandle) -> Settings {
         mcp_enabled: flag("mcp_enabled", false),
         mcp_notify: flag("mcp_notify", true),
         popup_on: flag("popup_on", true),
-        mcp_token: Mutex::new(token.unwrap_or_else(mcp::new_token)),
         bubble: Mutex::new(json["bubble"].is_object().then(|| bubble_clean(&json["bubble"]))),
         popup_style: Mutex::new(popup_style_clean(json["popup_style"].as_str().unwrap_or("")).into()),
         // desligada por padrão: usa a placa de vídeo
@@ -204,7 +203,6 @@ fn save_settings(app: &AppHandle) {
         "mcp_enabled": settings.mcp_enabled.load(Ordering::Relaxed),
         "mcp_notify": settings.mcp_notify.load(Ordering::Relaxed),
         "popup_on": settings.popup_on.load(Ordering::Relaxed),
-        "mcp_token": *settings.mcp_token.lock().unwrap(),
         "bubble": *settings.bubble.lock().unwrap(),
         "popup_style": *settings.popup_style.lock().unwrap(),
         "filtro_ia": settings.filtro_ia.load(Ordering::Relaxed),
@@ -377,7 +375,7 @@ fn set_autostart(on: bool) -> std::io::Result<()> {
     }
 }
 
-/// O que a tela "WhatsApp Lite" mostra. Sem o token.
+/// O que a tela "WhatsApp Lite" mostra. As chaves vêm mascaradas.
 fn lite_state(app: &AppHandle) -> Value {
     let s = app.state::<Settings>();
     json!({
@@ -392,6 +390,7 @@ fn lite_state(app: &AppHandle) -> Value {
         "filtro_ia": s.filtro_ia.load(Ordering::Relaxed),
         "filtro_avisar": s.filtro_avisar.load(Ordering::Relaxed),
         "bubble": bubble_opts_get(app.clone())["opts"],
+        "conexoes": app.state::<mcp::Conexoes>().visao(),
     })
 }
 
@@ -437,26 +436,6 @@ fn lite_set(app: AppHandle, key: String, on: bool) -> Value {
 fn lite_popup_style(app: AppHandle, style: String) {
     *app.state::<Settings>().popup_style.lock().unwrap() = popup_style_clean(&style).into();
     save_settings(&app);
-}
-
-/// Copia o comando de conexão do app de IA; a chave fica só aqui no Rust.
-#[tauri::command]
-fn lite_copy_command(app: AppHandle, client: String) -> bool {
-    let token = app.state::<Settings>().mcp_token.lock().unwrap().clone();
-    let Some(text) = mcp::connect_command(&client, &token) else { return false };
-    mcp::copy_to_clipboard(&text).map_err(|e| eprintln!("Erro ao copiar o comando: {}", e)).is_ok()
-}
-
-/// Nova chave: todo app conectado passa a receber 401.
-#[tauri::command]
-fn lite_new_token(app: AppHandle) -> bool {
-    let token = mcp::new_token();
-    if token.is_empty() {
-        return false;
-    }
-    *app.state::<Settings>().mcp_token.lock().unwrap() = token;
-    save_settings(&app);
-    true
 }
 
 // Na bandeja o WebView2 para de desenhar e libera memória; o JavaScript
@@ -525,12 +504,8 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         settings.mcp_enabled.load(Ordering::Relaxed),
         None::<&str>,
     )?;
-    let mcp_copy = MenuItem::with_id(app, "mcp_copy", "Copiar comando de conexão", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-    let menu = Menu::with_items(
-        app,
-        &[&open, &background, &ask_download, &mcp_on, &mcp_copy, &quit],
-    )?;
+    let menu = Menu::with_items(app, &[&open, &background, &ask_download, &mcp_on, &quit])?;
     if settings.mcp_enabled.load(Ordering::Relaxed) {
         mcp_listen(app.handle(), &mcp_on);
     }
@@ -549,10 +524,6 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             let toggled = match event.id().as_ref() {
                 "open" => return show_main_window(app),
                 "quit" => return app.exit(0),
-                "mcp_copy" => {
-                    lite_copy_command(app.clone(), "claude".into());
-                    return;
-                }
                 "mcp" => (&mcp_on, &app.state::<Settings>().mcp_enabled),
                 "background" => (&background, &app.state::<Settings>().run_in_background),
                 "ask_download" => (&ask_download, &app.state::<Settings>().ask_download_path),
@@ -663,13 +634,19 @@ fn main() {
             show_main_window(app);
         }))
         .setup(|app| {
-            app.manage(load_settings(app.handle()));
+            let json = read_settings(app.handle());
+            app.manage(load_settings(&json));
             app.manage(mcp::Bridge::default());
+            let local = app.path().app_local_data_dir().ok();
+            // conexões do MCP (uma chave por app): a chave única antiga vira a conexão "Claude Code"
+            let (conexoes, migrou) = mcp::Conexoes::load(local.clone(), json["mcp_token"].as_str());
+            app.manage(conexoes);
+            if migrou {
+                save_settings(app.handle()); // tira o mcp_token do settings.json
+            }
             // retidas e resultado da IA local: só neste PC (Local, não Roaming)
-            app.manage(filtro::Filtro::load(app.path().app_local_data_dir().ok()));
+            app.manage(filtro::Filtro::load(local));
             filtro::esteira(app.handle().clone());
-            // garante o token do MCP no arquivo (é gerado na primeira vez)
-            save_settings(app.handle());
 
             setup_main_window(app).map_err(|e| {
                 eprintln!("Erro na inicialização: {}", e);
@@ -698,9 +675,9 @@ fn main() {
             lite_get,
             lite_set,
             lite_popup_style,
-            lite_copy_command,
-            lite_new_token,
             mcp::mcp_result,
+            mcp::mcp_conexao,
+            mcp::mcp_copiar,
             filtro::filtro_verificar,
             filtro::filtro_fila,
             filtro::filtro_get,

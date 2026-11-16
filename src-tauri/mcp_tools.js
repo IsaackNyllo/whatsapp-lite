@@ -1,4 +1,5 @@
-// Ferramentas MCP de leitura (texto). O Rust chama window.__wlMcp(id, tool, args).
+// Ferramentas MCP de leitura (texto). O Rust chama window.__wlMcp(id, tool, args, ..., quem).
+// Cada ferramenta anota em ctx.uso a conversa e a quantidade: vai para o app (consumo e histórico), nunca para a IA.
 // Só lê: nunca envia, marca como lida, abre conversa ou altera nada.
 (() => {
   const DEFAULT_LIMIT = 1500, MAX_LIMIT = 10000;
@@ -109,7 +110,7 @@
     }
   }
 
-  async function listar_conversas({ filtro, limite = 50 } = {}) {
+  async function listar_conversas({ filtro, limite = 50 } = {}, ctx = {}) {
     limite = Math.max(1, Math.min(+limite || 50, 1000));
     let lista = C().Chat.getModelsArray();
     if (filtro) {
@@ -129,7 +130,8 @@
       if (l) o.ultima = { autor: autorDe(l, c), texto: f.retidas.has(keyOf(l)) ? MARCA : texto(l).slice(0, 100) };
       return o;
     });
-    avisarLeitura('a lista de conversas', null, f.novas);
+    ctx.uso = { conversa: null, n: conversas.length };
+    avisarLeitura(ctx, 'a lista de conversas', null, f.novas);
     return { aviso: AVISO + avisoIA(f), verificacaoIA: f.ia, total: lista.length, conversas };
   }
 
@@ -161,7 +163,7 @@
     return { novas, oldest };
   }
 
-  async function ler_mensagens({ conversa, desde, ate, limite = DEFAULT_LIMIT } = {}) {
+  async function ler_mensagens({ conversa, desde, ate, limite = DEFAULT_LIMIT } = {}, ctx = {}) {
     if (!conversa) throw new Error('Informe o nome da conversa.');
     limite = Math.max(1, Math.min(Math.floor(+limite) || DEFAULT_LIMIT, MAX_LIMIT));
     const t0 = desde ? parseDia(desde, false) : null;
@@ -184,17 +186,18 @@
       maisAntigaDisponivel: oldest ? dia(new Date(oldest * 1000)) : null, // mais antiga que o histórico carregado alcançou
       mensagens,
     };
-    avisarLeitura(nome, payload.total + ' mensagens', f.novas);
+    ctx.uso = { conversa: nome, n: payload.total };
+    avisarLeitura(ctx, nome, payload.total + ' mensagens', f.novas);
     return payload;
   }
 
   function bolinha(chat, text) {
     try { invoke('bubble_message', { chat, text, avatar: null }).catch(() => {}); } catch (e) {}
   }
-  // um aviso por leitura; o texto retido nunca vai para a bolinha. Retenção nova vence o "IA leu".
-  function avisarLeitura(nome, resumo, novas) {
+  // um aviso por leitura; o texto retido nunca vai para a bolinha. Retenção nova vence o "<conexão> leu".
+  function avisarLeitura(ctx, nome, resumo, novas, verbo = 'leu') {
     if (novas && cfg.avisar) bolinha(novas + (novas > 1 ? ' mensagens retidas' : ' mensagem retida'), nome + ': revise em Conectores de IA');
-    else if (avisar && resumo) bolinha('IA leu ' + nome, resumo);
+    else if (avisar && resumo) bolinha((ctx.quem || 'IA') + ' ' + verbo + ' ' + nome, resumo);
   }
 
   const LADO_MAX = 1024;
@@ -227,7 +230,7 @@
     } finally { clearTimeout(t); }
   }
 
-  async function ver_imagens({ conversa, desde, ate, limite = 10 } = {}) {
+  async function ver_imagens({ conversa, desde, ate, limite = 10 } = {}, ctx = {}) {
     if (!conversa) throw new Error('Informe o nome da conversa.');
     limite = Math.max(1, Math.min(Math.floor(+limite) || 10, 20));
     const t0 = desde ? parseDia(desde, false) : null;
@@ -256,7 +259,9 @@
       if (data) { content.push({ type: 'text', text: rotulo + nota }, { type: 'image', data, mimeType: 'image/jpeg' }); }
       else content.push({ type: 'text', text: rotulo + ' [imagem indisponível]' });
     }
-    avisarLeitura(nome, sel.length + ' imagens', f.novas);
+    const vistas = content.filter(b => b.type === 'image').length;
+    ctx.uso = { conversa: nome, n: vistas };
+    avisarLeitura(ctx, nome, vistas + (vistas === 1 ? ' imagem' : ' imagens'), f.novas, 'viu');
     return { content };
   }
 
@@ -264,20 +269,21 @@
   let avisar = true;
 
   const TOOLS = { listar_conversas, ler_mensagens, ver_imagens };
-  window.__wlMcpRun = async (tool, args) => {
+  window.__wlMcpRun = async (tool, args, ctx = {}) => {
     const f = TOOLS[tool];
     if (!f) throw new Error('Ferramenta desconhecida: ' + tool);
     minhas = F().compilar(cfg.minhas);
     nomes = new Map();
-    return f(args || {});
+    return f(args || {}, ctx);
   };
-  window.__wlMcp = async (id, tool, args, notify, filtro) => {
+  window.__wlMcp = async (id, tool, args, notify, filtro, quem) => {
     avisar = notify !== false;
     if (filtro) cfg = filtro;
+    const ctx = { quem };
     const inv = (p) => { try { return window.__TAURI_INTERNALS__.invoke('mcp_result', p); } catch (e) {} };
     try {
-      const r = await window.__wlMcpRun(tool, args);
-      await inv({ id, result: JSON.stringify(r) });
+      const r = await window.__wlMcpRun(tool, args, ctx);
+      await inv({ id, result: JSON.stringify(r), uso: ctx.uso || null });
     } catch (e) {
       await inv({ id, error: String((e && e.message) || e) });
     }
