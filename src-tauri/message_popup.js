@@ -53,6 +53,17 @@
         .wl-c .wl-name::after { content: ": "; }
         .wl-c .wl-time { display: none; }
 
+        /* prévia "Ver na tela": conversa de exemplo cobrindo a janela, abaixo da barra de título */
+        #wl-preview-layer { position: fixed; z-index: 10000; top: var(--wl-bar, 0px); left: 0; right: 0; bottom: 0;
+            background: #0b141a; overflow: hidden; }
+        #wl-preview-layer .hd { height: 52px; background: #202c33; display: flex; align-items: center; gap: 12px;
+            padding: 0 14px; color: #e9edef; font: 16px "Segoe UI", sans-serif; }
+        #wl-preview-layer .hd i { width: 36px; height: 36px; border-radius: 50%; background: #5b4a3a; }
+        #wl-preview-layer .bub { position: absolute; right: 16px; height: 40px; border-radius: 8px; background: #005c4b; }
+        #wl-preview-layer .bub.in { right: auto; left: 16px; background: #202c33; }
+        #wl-preview-layer .type { position: absolute; left: 0; right: 0; bottom: 0; height: 62px; background: #202c33;
+            color: #8696a0; font: 15px "Segoe UI", sans-serif; display: flex; align-items: center; padding: 0 70px; }
+
         /* amostra dentro das Configurações: sem posição, sem sumir */
         .wl-pop.wl-sample { position: relative; opacity: 1; visibility: visible; transform: none; pointer-events: none;
             top: auto; left: auto; right: auto; bottom: auto; width: auto; max-width: 100%; cursor: default; }
@@ -283,6 +294,7 @@
         if (!popup) return;
         const avatar = info.row.querySelector('img');
         const close = fill(popup, style, name, previewOf(info.row), avatar && avatar.src);
+        // info.demo = prévia das Configurações: nada abre e nada é enviado
         const reply = popup.querySelector('.wl-reply');
 
         // Responder vira um campo: Enter envia (pela função da bolinha), Esc cancela; enquanto responde, não some
@@ -296,7 +308,7 @@
             answer.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') return hide();
                 if (e.key !== 'Enter' || !answer.value.trim()) return;
-                window.__wlReply(name, answer.value);
+                if (!info.demo) window.__wlReply(name, answer.value);
                 hide();
             });
             reply.replaceWith(answer);
@@ -305,7 +317,7 @@
         popup.onclick = (e) => {
             if (e.target.closest('.wl-answer, .wl-reply')) return;
             hide();
-            if (!close.contains(e.target)) openChat(name);
+            if (!close.contains(e.target) && !info.demo) openChat(name);
         };
 
         popup.classList.add('wl-show');
@@ -316,6 +328,27 @@
     function hide() {
         const popup = document.getElementById(POPUP_ID);
         if (popup) popup.classList.remove('wl-show');
+        const layer = document.getElementById('wl-preview-layer');
+        if (layer) layer.remove();
+    }
+
+    // "Ver na tela": finge uma conversa aberta e chama o aviso de verdade no visual escolhido
+    function preview(vis) {
+        hide();
+        const layer = el('div', '');
+        layer.id = 'wl-preview-layer';
+        layer.innerHTML = '<div class="hd"><i></i>Conversa de exemplo</div>' +
+            '<div class="bub in" style="top:70px;width:200px"></div><div class="bub" style="top:122px;width:150px"></div>' +
+            '<div class="bub in" style="top:174px;width:240px"></div><div class="bub" style="top:226px;width:110px"></div>' +
+            '<div class="type">Digite uma mensagem</div>';
+        layer.onclick = hide;
+        document.body.appendChild(layer);
+        const row = document.createElement('div');
+        row.innerHTML = '<span data-testid="last-msg-status" title="Oi, meu filho, já chegou em casa?"></span>';
+        const keep = style;
+        style = vis;
+        show('Mãe', { row, demo: true });
+        style = keep;
     }
 
     function scheduleScan() {
@@ -340,6 +373,7 @@
 
     window.__wlPopup = {
         fill,
+        preview,
         show,
         setStyle(v) { style = v; },
         destroy() {

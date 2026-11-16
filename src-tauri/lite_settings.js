@@ -183,7 +183,7 @@
             group('Aviso de mensagem nova') +
             `<div class="wl-s" style="padding-bottom:10px">Aparece quando chega mensagem de outra conversa enquanto você está numa conversa. Clicar nele abre a conversa.</div>` +
             POPUPS.map(([id, name]) =>
-                `<div class="wl-choice" role="radio" tabindex="0" aria-checked="${state.popup_style === id}" data-pop="${id}"><div class="wl-lbl"><i></i>${name}</div><div data-ex="${id}"></div></div>`).join('')],
+                `<div class="wl-choice" role="radio" tabindex="0" aria-checked="${state.popup_style === id}" data-pop="${id}"><div class="wl-lbl"><i></i><span style="flex:1">${name}</span><button class="wl-btn" data-see="${id}">Ver na tela</button></div><div data-ex="${id}"></div></div>`).join('')],
     };
 
     function viewEl() { return document.getElementById(VIEW); }
@@ -221,7 +221,7 @@
             el.addEventListener('input', onInput);
             el.addEventListener('keydown', (e) => {
                 const choice = e.target.closest('[data-pop]');
-                if (choice && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pick(choice.dataset.pop); }
+                if (choice && e.target === choice && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pick(choice.dataset.pop); }
             });
             drawer.appendChild(el);
         }
@@ -267,6 +267,8 @@
     }
 
     async function onClick(e) {
+        const see = e.target.closest('[data-see]');
+        if (see) return window.__wlPopup.preview(see.dataset.see);
         const choice = e.target.closest('[data-pop]');
         if (choice) return pick(choice.dataset.pop);
         const t = e.target.closest('button');
