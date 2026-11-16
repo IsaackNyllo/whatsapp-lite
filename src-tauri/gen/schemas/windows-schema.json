@@ -267,6 +267,12 @@
           "markdownDescription": "Enables the filtro_verificar command without any pre-configured scope."
         },
         {
+          "description": "Enables the lite_dicas command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-lite-dicas",
+          "markdownDescription": "Enables the lite_dicas command without any pre-configured scope."
+        },
+        {
           "description": "Enables the lite_get command without any pre-configured scope.",
           "type": "string",
           "const": "allow-lite-get",
@@ -301,6 +307,12 @@
           "type": "string",
           "const": "allow-mcp-copiar",
           "markdownDescription": "Enables the mcp_copiar command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mcp_escrita command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mcp-escrita",
+          "markdownDescription": "Enables the mcp_escrita command without any pre-configured scope."
         },
         {
           "description": "Enables the mcp_result command without any pre-configured scope.",
@@ -399,6 +411,12 @@
           "markdownDescription": "Denies the filtro_verificar command without any pre-configured scope."
         },
         {
+          "description": "Denies the lite_dicas command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-lite-dicas",
+          "markdownDescription": "Denies the lite_dicas command without any pre-configured scope."
+        },
+        {
           "description": "Denies the lite_get command without any pre-configured scope.",
           "type": "string",
           "const": "deny-lite-get",
@@ -433,6 +451,12 @@
           "type": "string",
           "const": "deny-mcp-copiar",
           "markdownDescription": "Denies the mcp_copiar command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mcp_escrita command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mcp-escrita",
+          "markdownDescription": "Denies the mcp_escrita command without any pre-configured scope."
         },
         {
           "description": "Denies the mcp_result command without any pre-configured scope.",

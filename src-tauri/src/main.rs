@@ -36,6 +36,8 @@ struct Settings {
     filtro_ia: AtomicBool,
     filtro_avisar: AtomicBool,
     filtro_minhas: Mutex<Value>,
+    /// dicas (textos explicativos) que o usuário fechou no X da tela Conectores de IA
+    dicas_fechadas: Mutex<Vec<String>>,
 }
 
 /// Itens da bandeja que a tela de configurações também muda.
@@ -200,7 +202,18 @@ fn load_settings(json: &Value) -> Settings {
         filtro_ia: flag("filtro_ia", false),
         filtro_avisar: flag("filtro_avisar", true),
         filtro_minhas: Mutex::new(if json["filtro_minhas"].is_array() { json["filtro_minhas"].clone() } else { json!([]) }),
+        dicas_fechadas: Mutex::new(dicas_clean(&json["dicas_fechadas"])),
     }
+}
+
+/// Só ids curtos (letras, números, `_`/`-`), no máximo 50: é só "qual dica não mostrar".
+fn dicas_clean(v: &Value) -> Vec<String> {
+    let ok = |s: &&str| !s.is_empty() && s.len() <= 32 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    let mut l: Vec<String> = v.as_array().into_iter().flatten().filter_map(Value::as_str).filter(ok).map(String::from).collect();
+    l.sort();
+    l.dedup();
+    l.truncate(50);
+    l
 }
 
 fn save_settings(app: &AppHandle) {
@@ -219,6 +232,7 @@ fn save_settings(app: &AppHandle) {
         "filtro_ia": settings.filtro_ia.load(Ordering::Relaxed),
         "filtro_avisar": settings.filtro_avisar.load(Ordering::Relaxed),
         "filtro_minhas": *settings.filtro_minhas.lock().unwrap(),
+        "dicas_fechadas": *settings.dicas_fechadas.lock().unwrap(),
     });
     let result = path
         .parent()
@@ -415,7 +429,17 @@ fn lite_state(app: &AppHandle) -> Value {
         "filtro_avisar": s.filtro_avisar.load(Ordering::Relaxed),
         "bubble": bubble_opts_get(app.clone())["opts"],
         "conexoes": app.state::<mcp::Conexoes>().visao(),
+        "escrita": app.state::<mcp::Escrita>().visao(),
+        "dicas_fechadas": *s.dicas_fechadas.lock().unwrap(),
     })
+}
+
+/// Dicas fechadas no X (ou todas de volta com lista vazia). Só esconde texto: não enfraquece nada, sem caixa.
+#[tauri::command]
+fn lite_dicas(app: AppHandle, fechadas: Value) -> Value {
+    *app.state::<Settings>().dicas_fechadas.lock().unwrap() = dicas_clean(&fechadas);
+    save_settings(&app);
+    lite_state(&app)
 }
 
 #[tauri::command]
@@ -433,7 +457,13 @@ fn aviso(comando: &str, alvo: &str, on: bool) -> Option<&'static str> {
         ("lite_set", "mcp_notify", false) => "Desligar o aviso quando uma IA ler?\n\nVocê deixa de ver quando um app lê suas conversas.",
         ("lite_set", "notice_win", false) => "Desligar o aviso de leitura na janela?\n\nCom a janela aberta, você deixa de ver quando um app lê suas conversas.",
         ("lite_set", "filtro_avisar", false) => "Desligar o aviso de mensagem retida?\n\nVocê deixa de ver quando o filtro segura uma mensagem.",
-        ("lite_set", "mcp_enabled", true) => "Permitir que IAs leiam suas conversas?\n\nOs apps conectados passam a ler suas conversas neste computador.",
+        ("lite_set", "mcp_enabled", true) => "Permitir que IAs leiam suas conversas?\n\nAs conexões com \"Pode ler\" passam a ver todas as suas conversas neste computador.",
+        // escrever (Fase 15): tudo que aumenta o poder da IA; desligar, tirar canal e descer o limite seguem sem caixa
+        ("mcp_escrita", "ligar", true) => "Permitir que IAs enviem mensagens pelo seu WhatsApp?\n\nElas só poderão escrever texto, nos canais da lista, e só nas conexões em que você ligar \"Pode escrever\".",
+        ("mcp_escrita", "canal_add", true) => "Permitir que IAs enviem mensagens neste canal?\n\nAs conexões com \"Pode escrever\" poderão escrever texto nele quando você pedir.",
+        ("mcp_escrita", "limite", true) => "Aumentar o limite de mensagens por hora?\n\nMais mensagens enviadas por IA aumentam o risco de bloqueio da conta.",
+        ("mcp_conexao", "escreve_on", true) => "Permitir que esta conexão envie mensagens?\n\nEla poderá escrever texto nos canais permitidos quando você pedir.",
+        ("mcp_conexao", "le_on", true) => "Permitir que esta conexão leia suas conversas?\n\nEla passará a ver todas as suas conversas.",
         ("mcp_conexao", "criar", _) => "Criar uma conexão nova?\n\nEla ganha uma chave que dá acesso de leitura às suas conversas.",
         ("mcp_conexao", "renovar", _) => "Renovar a chave desta conexão?\n\nA chave antiga para de valer e é criada uma chave nova com acesso de leitura às suas conversas.",
         ("mcp_conexao", "revogar_todas", _) => "Revogar todas as conexões?\n\nTodos os apps de IA perdem o acesso agora e as chaves são apagadas.",
@@ -449,8 +479,14 @@ pub const RECUSOU: &str = "Você recusou na caixa do Windows. Nada mudou.";
 /// Falha fechada: qualquer coisa diferente de "Sim" (Não, caixa que não abriu) devolve erro.
 /// Async: a caixa roda numa thread própria (rfd) e a janela segue desenhando e respondendo.
 pub async fn confirma(app: &AppHandle, comando: &str, alvo: &str, on: bool) -> Result<(), String> {
+    confirma_com(app, comando, alvo, on, "").await
+}
+
+/// Igual a `confirma`, com um detalhe depois do texto fixo (nome e identificador do canal, conexão, limite novo).
+pub async fn confirma_com(app: &AppHandle, comando: &str, alvo: &str, on: bool, detalhe: &str) -> Result<(), String> {
     static ABERTA: AtomicBool = AtomicBool::new(false);
     let Some(texto) = aviso(comando, alvo, on) else { return Ok(()) };
+    let texto = format!("{texto}{detalhe}");
     // uma caixa por vez: a página não empilha caixas para o clique cair na errada
     if ABERTA.swap(true, Ordering::SeqCst) {
         return Err("Já há uma confirmação aberta na caixa do Windows. Nada mudou.".into());
@@ -545,6 +581,11 @@ fn set_in_tray(window: &tauri::WebviewWindow, in_tray: bool) {
 
 const MCP_LABEL: &str = "Conectar a IAs (MCP)";
 
+/// Abre a porta do MCP (ao ligar escrever com a leitura desligada, por exemplo).
+pub fn mcp_listen_app(app: &AppHandle) {
+    mcp_listen(app, &app.state::<TrayItems>().mcp);
+}
+
 // Porta ocupada não derruba o app: o item da bandeja avisa e tenta de novo ao religar.
 fn mcp_listen(app: &AppHandle, item: &CheckMenuItem<tauri::Wry>) {
     let label = match mcp::listen(app) {
@@ -587,7 +628,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     )?;
     let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &background, &ask_download, &mcp_on, &quit])?;
-    if settings.mcp_enabled.load(Ordering::Relaxed) {
+    if settings.mcp_enabled.load(Ordering::Relaxed) || app.state::<mcp::Escrita>().ligado() {
         mcp_listen(app.handle(), &mcp_on);
     }
     app.manage(TrayItems {
@@ -722,6 +763,8 @@ fn main() {
             // conexões do MCP (uma chave por app): a chave única antiga vira a conexão "Claude Code"
             let (conexoes, migrou) = mcp::Conexoes::load(local.clone(), json["mcp_token"].as_str());
             app.manage(conexoes);
+            // escrever (canais, limite, envios): arquivo próprio, fora do settings.json
+            app.manage(mcp::Escrita::load(local.clone()));
             if migrou {
                 save_settings(app.handle()); // tira o mcp_token do settings.json
             }
@@ -758,9 +801,11 @@ fn main() {
             lite_set,
             lite_popup_style,
             lite_notice_pos,
+            lite_dicas,
             mcp::mcp_result,
             mcp::mcp_conexao,
             mcp::mcp_copiar,
+            mcp::mcp_escrita,
             filtro::filtro_verificar,
             filtro::filtro_fila,
             filtro::filtro_get,
@@ -829,6 +874,12 @@ mod tests {
             ("mcp_conexao", "revogar_todas", false),
             ("mcp_copiar", "chave", false),
             ("mcp_copiar", "conectar", false),
+            // Fase 15: o que aumenta o poder (on = aumenta de verdade)
+            ("mcp_escrita", "ligar", true),
+            ("mcp_escrita", "canal_add", true),
+            ("mcp_escrita", "limite", true),
+            ("mcp_conexao", "escreve_on", true),
+            ("mcp_conexao", "le_on", true),
         ];
         for (c, a, on) in pede {
             assert!(aviso(c, a, on).is_some(), "{c} {a} {on} tem de pedir");
@@ -849,16 +900,33 @@ mod tests {
             ("mcp_conexao", "revogar", false),
             ("mcp_conexao", "limpar", false),
             ("mcp_copiar", "endereco", false),
+            // Fase 15: o que reduz o poder (ou não muda nada) segue sem caixa
+            ("mcp_escrita", "desligar", false),
+            ("mcp_escrita", "canal_tirar", false),
+            ("mcp_escrita", "limite", false),
+            ("mcp_escrita", "limpar", false),
+            ("mcp_escrita", "ligar", false),
+            ("mcp_escrita", "canal_add", false),
+            ("mcp_conexao", "escreve_off", false),
+            ("mcp_conexao", "le_off", false),
+            ("mcp_conexao", "escreve_on", false),
+            ("mcp_conexao", "le_on", false),
         ];
         for (c, a, on) in livre {
             assert!(aviso(c, a, on).is_none(), "{c} {a} {on} não pede");
         }
         // cada comando sensível chama a caixa antes de mexer em algo
         let fontes = [include_str!("main.rs"), include_str!("mcp.rs"), include_str!("filtro.rs")].concat();
-        for cmd in ["lite_set", "mcp_conexao", "mcp_copiar", "filtro_acao", "filtro_minhas"] {
+        for cmd in ["lite_set", "mcp_conexao", "mcp_copiar", "mcp_escrita", "filtro_acao", "filtro_minhas"] {
             let corpo = fontes.split(&format!("async fn {cmd}(")).nth(1).unwrap_or_else(|| panic!("{cmd} não é async"));
             let corpo = corpo.split("\n}").next().unwrap(); // fim da função (mcp.rs e filtro.rs têm CRLF)
-            assert!(corpo.contains(&format!("confirma(&app, \"{cmd}\"")), "{cmd} sem a caixa Sim/Não");
+            assert!(
+                corpo.contains(&format!("confirma(&app, \"{cmd}\"")) || corpo.contains(&format!("confirma_com(&app, \"{cmd}\"")),
+                "{cmd} sem a caixa Sim/Não"
+            );
         }
+        // gravar as dicas fechadas não passa por caixa e não é ação sensível
+        assert!(aviso("lite_dicas", "", false).is_none() && aviso("lite_dicas", "", true).is_none());
+        assert_eq!(super::dicas_clean(&serde_json::json!(["escrever", "escrever", "<b>", "", 3, "a-b_c"])), ["a-b_c", "escrever"]);
     }
 }

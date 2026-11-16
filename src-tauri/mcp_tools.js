@@ -1,6 +1,6 @@
 // Ferramentas MCP de leitura (texto). O Rust chama window.__wlMcp(id, tool, args, ..., quem).
 // Cada ferramenta anota em ctx.uso a conversa e a quantidade: vai para o app (consumo e histórico), nunca para a IA.
-// Só lê: nunca envia, marca como lida, abre conversa ou altera nada.
+// Leitura: nunca marca como lida, abre conversa ou altera nada. Envio (enviar_mensagem): só texto, só o jid que o app mandou.
 (() => {
   const DEFAULT_LIMIT = 1500, MAX_LIMIT = 10000;
   // Tipos sem conteúdo útil: ficam de fora (decisão: ignorar, não virar [evento]).
@@ -226,10 +226,11 @@
 
   // aviso próprio da bolinha (sem Responder, sem som); icon = data URI do app, sem ele sai o "!" amarelo.
   // Sem bolinha, o app devolve false e o mesmo cartão aparece dentro da janela.
-  function bolinha(title, text, icon) {
+  // sempre = ignora o interruptor do aviso na janela (o aviso de envio não tem interruptor)
+  function bolinha(title, text, icon, sempre) {
     try {
       invoke('bubble_notice', { title, text, icon: icon || null })
-        .then((naBolinha) => { if (!naBolinha && window.__wlPopup) window.__wlPopup.notice({ title, text, icon }); }).catch(() => {});
+        .then((naBolinha) => { if (!naBolinha && window.__wlPopup) window.__wlPopup.notice({ title, text, icon }, undefined, !!sempre); }).catch(() => {});
     } catch (e) {}
   }
   // um aviso por leitura; o texto retido nunca vai para a bolinha. Retenção nova vence o "<conexão> leu".
@@ -303,10 +304,27 @@
     return { content };
   }
 
+  // Envio (Fase 15). O app (Rust) já conferiu a conexão, o canal, o limite e o texto; aqui chega só o jid
+  // exato da lista. Usa o módulo de envio do WhatsApp: não abre a conversa e não marca nada como lido.
+  async function enviar_mensagem({ jid, canal, texto } = {}, ctx = {}) {
+    const chat = jid && C().Chat.get(jid);
+    if (!chat) throw new Error('Canal não encontrado no WhatsApp: nada foi enviado.'); // o Rust devolve a reserva (NAO_ACHOU)
+    const r = await require('WAWebSendTextMsgChatAction').sendTextMsgToChat(chat, texto);
+    const res = r && r.messageSendResult;
+    if (res !== 'OK') throw new Error('O WhatsApp não confirmou o envio (' + (res || 'sem resposta') + '). Confira a conversa antes de tentar de novo.');
+    ctx.uso = { conversa: canal, n: 1 };
+    // aviso sempre, sem interruptor: quem escreve por você sempre avisa (o texto vai só para a tela, nunca para o histórico)
+    const n = Array.from(String(texto)).length;
+    // tamanho primeiro: o cartão corta a linha no fim
+    bolinha((ctx.quem || 'IA') + ' enviou para ' + canal, n + (n === 1 ? ' caractere · "' : ' caracteres · "') + trecho(String(texto)).replace(/\s+/g, ' ') + '"',
+      window.__wlIcons && window.__wlIcons(ctx.tipo), true);
+    return { enviada: true };
+  }
+
   // "Avisar quando uma IA ler" (configuração do app); vem em cada chamada do Rust
   let avisar = true;
 
-  const TOOLS = { listar_conversas, ler_mensagens, ver_imagens };
+  const TOOLS = { listar_conversas, ler_mensagens, ver_imagens, enviar_mensagem };
   window.__wlMcpRun = async (tool, args, ctx = {}) => {
     const f = TOOLS[tool];
     if (!f) throw new Error('Ferramenta desconhecida: ' + tool);
