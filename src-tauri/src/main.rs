@@ -302,6 +302,14 @@ fn bubble_message(app: AppHandle, chat: String, text: String, avatar: Option<Str
     eval_in(&app, "bubble", format!("window.wlMessage && window.wlMessage({payload})"));
 }
 
+/// Aviso do app (uma IA leu, mensagem retida): cartão próprio, sem Responder e sem som.
+/// `icon` é um data URI redondo pronto; sem ele, a bolinha desenha o "!" amarelo.
+#[tauri::command]
+fn bubble_notice(app: AppHandle, title: String, text: String, icon: Option<String>) {
+    let payload = serde_json::json!({ "title": title, "text": text, "icon": icon });
+    eval_in(&app, "bubble", format!("window.wlNotice && window.wlNotice({payload})"));
+}
+
 #[tauri::command]
 fn bubble_reply(app: AppHandle, chat: String, text: String) {
     let args = serde_json::json!([chat, text]);
@@ -667,6 +675,7 @@ fn main() {
             bubble_enter,
             bubble_open,
             bubble_message,
+            bubble_notice,
             bubble_ready,
             bubble_reply,
             bubble_unread,

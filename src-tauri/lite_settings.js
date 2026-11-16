@@ -698,6 +698,18 @@
         if (current !== 'regras' && current !== 'nova' && !asking) render();
     }
     window.__wlLite = { refresh };
+    // ícone redondo do app da conexão (data URI): o aviso da bolinha é outra janela e não lê nada daqui
+    window.__wlIcons = (tipo) => {
+        const t = APP_ICONS[tipo] ? tipo : 'outro';
+        const bg = t === 'claude' ? '#D97757' : t === 'outro' ? '#3b4a54' : '#fff';
+        let g = t === 'outro' ? PLUG.replace('<svg ', '<svg fill="none" stroke="#e9edef" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" ')
+            : t === 'claude' ? APP_ICONS.claude.replace('#D97757', '#fff') : APP_ICONS[t];
+        const pos = 'x="7" y="7" width="22" height="22"';
+        const png = /src="([^"]+)"/.exec(g);
+        g = png ? `<image ${pos} href="${png[1]}"/>` : g.replace(/ (width|height)="\d+"/g, '').replace('<svg ', `<svg ${pos} `);
+        return 'data:image/svg+xml;utf8,' + encodeURIComponent(
+            `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"><circle cx="18" cy="18" r="18" fill="${bg}"/>${g}</svg>`);
+    };
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh(); });
 
     function init() {

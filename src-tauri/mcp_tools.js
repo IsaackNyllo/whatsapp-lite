@@ -191,13 +191,14 @@
     return payload;
   }
 
-  function bolinha(chat, text) {
-    try { invoke('bubble_message', { chat, text, avatar: null }).catch(() => {}); } catch (e) {}
+  // aviso próprio da bolinha (sem Responder, sem som); icon = data URI do app, sem ele sai o "!" amarelo
+  function bolinha(title, text, icon) {
+    try { invoke('bubble_notice', { title, text, icon: icon || null }).catch(() => {}); } catch (e) {}
   }
   // um aviso por leitura; o texto retido nunca vai para a bolinha. Retenção nova vence o "<conexão> leu".
   function avisarLeitura(ctx, nome, resumo, novas, verbo = 'leu') {
     if (novas && cfg.avisar) bolinha(novas + (novas > 1 ? ' mensagens retidas' : ' mensagem retida'), nome + ': revise em Conectores de IA');
-    else if (avisar && resumo) bolinha((ctx.quem || 'IA') + ' ' + verbo + ' ' + nome, resumo);
+    else if (avisar && resumo) bolinha((ctx.quem || 'IA') + ' ' + verbo + ' ' + nome, resumo, window.__wlIcons && window.__wlIcons(ctx.tipo));
   }
 
   const LADO_MAX = 1024;
@@ -276,10 +277,10 @@
     nomes = new Map();
     return f(args || {}, ctx);
   };
-  window.__wlMcp = async (id, tool, args, notify, filtro, quem) => {
+  window.__wlMcp = async (id, tool, args, notify, filtro, quem, tipo) => {
     avisar = notify !== false;
     if (filtro) cfg = filtro;
-    const ctx = { quem };
+    const ctx = { quem, tipo };
     const inv = (p) => { try { return window.__TAURI_INTERNALS__.invoke('mcp_result', p); } catch (e) {} };
     try {
       const r = await window.__wlMcpRun(tool, args, ctx);

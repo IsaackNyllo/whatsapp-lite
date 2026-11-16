@@ -139,6 +139,10 @@ impl Conexoes {
         self.lista.lock().unwrap().iter().find(|c| c.id == id).map_or("IA".into(), |c| c.nome.clone())
     }
 
+    fn tipo(&self, id: u64) -> String {
+        self.lista.lock().unwrap().iter().find(|c| c.id == id).map_or("outro".into(), |c| c.tipo.clone())
+    }
+
     /// Conta a chamada; com `uso` (a leitura deu certo), soma e anota no histórico.
     fn registrar(&self, id: u64, ferramenta: &str, uso: Option<&Value>) {
         let mut lista = self.lista.lock().unwrap();
@@ -420,7 +424,8 @@ fn call_tool(app: &AppHandle, conexao: u64, tool: &str, args: &Value) -> Result<
         "avisar": settings.filtro_avisar.load(Ordering::Relaxed),
     });
     let quem = serde_json::to_string(&conexoes.nome(conexao)).unwrap_or_default();
-    crate::eval_in(app, "main", format!("window.__wlMcp && window.__wlMcp({id}, {nome}, {args}, {notify}, {filtro}, {quem})"));
+    let tipo = serde_json::to_string(&conexoes.tipo(conexao)).unwrap_or_default();
+    crate::eval_in(app, "main", format!("window.__wlMcp && window.__wlMcp({id}, {nome}, {args}, {notify}, {filtro}, {quem}, {tipo})"));
     let answer = rx.recv_timeout(TOOL_TIMEOUT).unwrap_or_else(|_| Err("WhatsApp não respondeu a tempo".into()));
     bridge.pending.lock().unwrap().remove(&id);
     conexoes.registrar(conexao, tool, answer.as_ref().ok().and_then(|(_, uso)| uso.as_ref()));

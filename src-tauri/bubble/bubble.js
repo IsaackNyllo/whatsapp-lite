@@ -5,7 +5,7 @@ const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args);
 const $ = (id) => document.getElementById(id);
 
 // tamanhos da janela em cada estado
-const SIZE = { ball: [76, 76], card: [340, 104], reply: [340, 138], opts: [300, 340] };
+const SIZE = { ball: [76, 76], card: [340, 104], notice: [400, 74], reply: [340, 138], opts: [300, 340] };
 const DEFAULTS = { color: '#ffffff', count: true, preview: true, sound: true, seconds: 5 };
 
 // as opções ficam no settings.json do app (a tela "WhatsApp Lite" também muda)
@@ -74,6 +74,7 @@ window.wlMessage = ({ chat, text, avatar }) => {
     if (!opts.preview || $('opts').classList.contains('on')) return;
     // não atropela uma resposta sendo escrita
     if ($('card').matches('.on.replying')) return;
+    $('notice').classList.remove('on');
     cardChat = chat;
     $('name').textContent = chat;
     $('msg').textContent = text;
@@ -84,7 +85,23 @@ window.wlMessage = ({ chat, text, avatar }) => {
     hideTimer = setTimeout(hideCard, opts.seconds * 1000);
 };
 
+// aviso do app: sem som, sem Responder, não depende da "Prévia das mensagens"; clicar só fecha
+window.wlNotice = ({ title, text, icon }) => {
+    if ($('opts').classList.contains('on') || $('card').matches('.on.replying')) return;
+    $('card').classList.remove('on');
+    $('nTitle').textContent = title;
+    $('nText').textContent = text;
+    if (icon) $('nIcon').src = icon; else $('nIcon').removeAttribute('src');
+    $('notice').classList.toggle('icon', !!icon);
+    $('notice').classList.add('on');
+    resize('notice');
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hideCard, opts.seconds * 1000);
+};
+$('notice').addEventListener('click', hideCard);
+
 function hideCard() {
+    $('notice').classList.remove('on');
     $('card').classList.remove('on', 'replying');
     $('answer').value = '';
     if (!$('opts').classList.contains('on')) resize('ball');
@@ -169,6 +186,7 @@ $('ball').addEventListener('contextmenu', (e) => {
     e.preventDefault();
     paintOpts();
     $('card').classList.remove('on');
+    $('notice').classList.remove('on');
     form.classList.add('on');
     resize('opts');
 });
