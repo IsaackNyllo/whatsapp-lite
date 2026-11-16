@@ -177,6 +177,24 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the audio_ler command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-audio-ler",
+          "markdownDescription": "Enables the audio_ler command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the audio_motor command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-audio-motor",
+          "markdownDescription": "Enables the audio_motor command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the audio_transcrever command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-audio-transcrever",
+          "markdownDescription": "Enables the audio_transcrever command without any pre-configured scope."
+        },
+        {
           "description": "Enables the bubble_enter command without any pre-configured scope.",
           "type": "string",
           "const": "allow-bubble-enter",
@@ -319,6 +337,24 @@
           "type": "string",
           "const": "allow-mcp-result",
           "markdownDescription": "Enables the mcp_result command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the audio_ler command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-audio-ler",
+          "markdownDescription": "Denies the audio_ler command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the audio_motor command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-audio-motor",
+          "markdownDescription": "Denies the audio_motor command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the audio_transcrever command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-audio-transcrever",
+          "markdownDescription": "Denies the audio_transcrever command without any pre-configured scope."
         },
         {
           "description": "Denies the bubble_enter command without any pre-configured scope.",

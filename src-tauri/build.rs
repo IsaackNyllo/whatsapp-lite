@@ -26,6 +26,9 @@ const COMMANDS: &[&str] = &[
     "filtro_acao",
     "filtro_minhas",
     "filtro_ollama",
+    "audio_ler",
+    "audio_transcrever",
+    "audio_motor",
 ];
 
 fn main() {

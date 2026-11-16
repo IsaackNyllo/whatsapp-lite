@@ -33,6 +33,9 @@
     "allow-filtro-get",
     "allow-filtro-acao",
     "allow-filtro-minhas",
-    "allow-filtro-ollama"
+    "allow-filtro-ollama",
+    "allow-audio-ler",
+    "allow-audio-transcrever",
+    "allow-audio-motor"
   ]
 }

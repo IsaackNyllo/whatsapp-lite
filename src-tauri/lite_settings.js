@@ -272,6 +272,7 @@
         pen: svg('<path d="M4 20l1-4L16 5l3 3L8 19zM14 7l3 3"/>'),
         gauge: svg('<path d="M4 16a8 8 0 1 1 16 0M12 16l4-5"/>'),
         clock: svg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>'),
+        mic: svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
     };
     const FOLD = '<svg class="wl-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>';
     const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg>';
@@ -294,7 +295,7 @@
     let teste = null;     // último "Testar conexão" do Ollama
     // subtela -> tela de onde veio (o Voltar volta para ela)
     const PARENT = { retidas: 'mcp', regras: 'mcp', ia: 'mcp', nova: 'mcp', pronta: 'mcp', det: 'mcp', renovada: 'det', todas: 'mcp',
-        escrever: 'mcp', canais: 'escrever', addcanal: 'canais', limite: 'escrever', envios: 'escrever' };
+        escrever: 'mcp', canais: 'escrever', addcanal: 'canais', limite: 'escrever', envios: 'escrever', audio: 'mcp' };
     let limAviso = '';    // aviso do campo Limite por hora (valor recusado)
     let limOcupado = false;
     let busca = '';       // busca em "Adicionar canal"
@@ -451,6 +452,10 @@
                     : ollamaOk() === false ? 'Ligada, mas o Ollama está desligado' : 'Gemma 4 E4B · ligada', 'ia') +
                 row('Avisar na bolinha quando reter', 'Mostra "1 mensagem retida" quando algo for guardado',
                     sw('filtro_avisar', state.filtro_avisar, 'Avisar na bolinha quando reter')) +
+                group('Áudios <span class="wl-new">novo</span>') +
+                nav('mic', 'Transcrever áudios', !state.audio.ligado ? 'Desligado: a IA vê só [áudio 0:42]'
+                    : !state.audio.motor ? 'Ligado, mas falta baixar o motor' : `Ligado · ${num(state.audio.transcritos)} com texto`, 'audio',
+                    `<span class="wl-state${state.audio.ligado ? '' : ' off'}">${state.audio.ligado ? 'Ligado' : 'Desligado'}</span>`) +
                 group('Segurança') +
                 row('Avisar quando uma IA ler', 'Mostra qual conexão leu, qual conversa e quantas mensagens', sw('mcp_notify', state.mcp_notify, 'Avisar quando uma IA ler')) +
                 row('Mostrar também na janela', 'Com a bolinha ativa, só ela avisa', sw('notice_win', state.notice_win, 'Mostrar também na janela')) +
@@ -583,6 +588,24 @@
                 dica('ia_sem', 'Quem não usa Ollama liga só as <b>regras</b>: o filtro continua valendo e a tela avisa "verificação por IA local desligada". A leitura nunca fica bloqueada.') +
                 '</div>';
         }],
+        audio: ['Transcrever áudios', () => {
+            const a = state.audio, mb = (b) => num(Math.round(b / 1048576));
+            const naFila = window.__wlAudio ? window.__wlAudio.fila() : 0;
+            const [cls, txt] = a.baixando != null ? ['off', `Baixando o motor… ${mb(a.baixando)} de ${mb(a.total)} MB`]
+                : !a.motor ? ['bad', a.ligado ? 'Ligado, mas sem o motor: nada é transcrito' : 'Motor não instalado']
+                : a.ligado ? ['', naFila ? `Transcrevendo: ${num(naFila)} na fila` : 'Pronto: cada áudio novo vira texto']
+                : ['off', 'Desligado: a IA vê só [áudio 0:42]'];
+            return row('Transcrever áudios', 'Áudio vira texto aqui no PC, para as IAs com "Pode ler"', sw('audio_on', a.ligado, 'Transcrever áudios')) +
+                `<div class="wl-status ${cls}"><i></i>${txt}</div>` +
+                dica('audio', 'Cada áudio novo, de todas as conversas e grupos, é transcrito assim que chega, um por vez e com pouca CPU. O áudio nunca sai do PC: fica só o texto, guardado sem prazo. O WhatsApp apaga a mídia em 16 a 19 dias; o que não foi transcrito até lá fica "expirado".') +
+                group('Motor') +
+                row('whisper.cpp · modelo small', 'Só CPU, neste PC · ≈ ' + mb(a.total) + ' MB',
+                    a.motor ? '<button class="wl-btn wl-danger" data-act="apagar_motor">Apagar motor</button>'
+                    : `<button class="wl-btn" data-act="baixar_motor"${a.baixando != null ? ' disabled' : ''}>Baixar motor</button>`) +
+                group('Transcrições guardadas') +
+                `<div class="wl-stats"><div class="wl-stat"><b>${num(a.transcritos)}</b><span>áudios com texto</span></div><div class="wl-stat"><b>${num(a.guardados - a.transcritos)}</b><span>sem fala, expirados ou longos</span></div></div>` +
+                row('Apagar transcrições', 'Só os textos guardados neste PC', `<button class="wl-btn wl-danger" data-act="apagar_trans"${a.guardados ? '' : ' disabled'}>Apagar</button>`);
+        }],
         aplicativo: ['Aplicativo', () =>
             row('Iniciar com o Windows', 'Abre escondido na bandeja quando o computador liga', sw('autostart', state.autostart, 'Iniciar com o Windows')) +
             row('Rodar em segundo plano', 'Fechar a janela deixa o app na bandeja', sw('run_in_background', state.run_in_background, 'Rodar em segundo plano')) +
@@ -690,6 +713,26 @@
         if (r) state.escrita = r;
         render();
         return r;
+    }
+
+    // motor de transcrição: baixar (mostra o andamento), apagar; apagar transcrições
+    async function motor(act) {
+        const acao = { baixar_motor: 'baixar', apagar_motor: 'apagar', apagar_trans: 'limpar' }[act];
+        let anda = 0;
+        if (acao === 'baixar') {
+            state.audio.baixando = 0;
+            render();
+            anda = setInterval(async () => {
+                const a = await invoke('audio_ler', { itens: [] }).catch(() => null);
+                if (a && current === 'audio' && state.audio.baixando != null) { state.audio = a; render(); }
+            }, 1000);
+        }
+        const r = await invoke('audio_motor', { acao }).catch((e) => { toast(String(e)); return null; });
+        clearInterval(anda);
+        if (r) state = r;
+        else state.audio = await invoke('audio_ler', { itens: [] }).catch(() => ({ ...state.audio, baixando: null }));
+        render();
+        if (r) toast({ baixar: 'Motor instalado', apagar: 'Motor apagado', limpar: 'Transcrições apagadas' }[acao]);
     }
 
     // campo "Mensagens por hora": inteiro de 1 a 100. Inválido: aviso e nada muda. Subir pede a caixa (no Rust).
@@ -840,6 +883,7 @@
         if (act === 'addcanal') { busca = ''; return go('addcanal'); }
         if (act === 'desligar_tudo') { if (await escrita('desligar')) toast('Escrever desligado: nada mais é enviado'); return; }
         if (act === 'limpar_envios') { if (await escrita('limpar')) toast('Histórico de envios limpo'); return; }
+        if (act === 'baixar_motor' || act === 'apagar_motor' || act === 'apagar_trans') return motor(act);
         const k = t.dataset.k;
         if (!k) return;
         const on = t.getAttribute('aria-checked') !== 'true';

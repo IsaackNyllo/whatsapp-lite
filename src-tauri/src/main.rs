@@ -5,6 +5,7 @@
 
 mod filtro;
 mod mcp;
+mod transcricao;
 
 use std::env;
 use std::fs;
@@ -38,6 +39,8 @@ struct Settings {
     filtro_minhas: Mutex<Value>,
     /// dicas (textos explicativos) que o usuário fechou no X da tela Conectores de IA
     dicas_fechadas: Mutex<Vec<String>>,
+    /// "Transcrever áudios" (Fase 7): desligado por padrão; ligar pede a caixa Sim/Não
+    audio_on: AtomicBool,
 }
 
 /// Itens da bandeja que a tela de configurações também muda.
@@ -203,6 +206,7 @@ fn load_settings(json: &Value) -> Settings {
         filtro_avisar: flag("filtro_avisar", true),
         filtro_minhas: Mutex::new(if json["filtro_minhas"].is_array() { json["filtro_minhas"].clone() } else { json!([]) }),
         dicas_fechadas: Mutex::new(dicas_clean(&json["dicas_fechadas"])),
+        audio_on: flag("audio_on", false),
     }
 }
 
@@ -233,6 +237,7 @@ fn save_settings(app: &AppHandle) {
         "filtro_avisar": settings.filtro_avisar.load(Ordering::Relaxed),
         "filtro_minhas": *settings.filtro_minhas.lock().unwrap(),
         "dicas_fechadas": *settings.dicas_fechadas.lock().unwrap(),
+        "audio_on": settings.audio_on.load(Ordering::Relaxed),
     });
     let result = path
         .parent()
@@ -431,6 +436,8 @@ fn lite_state(app: &AppHandle) -> Value {
         "conexoes": app.state::<mcp::Conexoes>().visao(),
         "escrita": app.state::<mcp::Escrita>().visao(),
         "dicas_fechadas": *s.dicas_fechadas.lock().unwrap(),
+        "audio_on": s.audio_on.load(Ordering::Relaxed),
+        "audio": app.state::<transcricao::Transcricao>().visao(s.audio_on.load(Ordering::Relaxed)),
     })
 }
 
@@ -457,6 +464,7 @@ fn aviso(comando: &str, alvo: &str, on: bool) -> Option<&'static str> {
         ("lite_set", "mcp_notify", false) => "Desligar o aviso quando uma IA ler?\n\nVocê deixa de ver quando um app lê suas conversas.",
         ("lite_set", "notice_win", false) => "Desligar o aviso de leitura na janela?\n\nCom a janela aberta, você deixa de ver quando um app lê suas conversas.",
         ("lite_set", "filtro_avisar", false) => "Desligar o aviso de mensagem retida?\n\nVocê deixa de ver quando o filtro segura uma mensagem.",
+        ("lite_set", "audio_on", true) => "Transcrever os áudios das suas conversas?\n\nCada áudio que chegar, de todas as conversas e grupos, é baixado e transformado em texto neste computador. O áudio não sai do PC. O texto fica guardado no app e as conexões com \"Pode ler\" passam a ler o que foi falado.",
         ("lite_set", "mcp_enabled", true) => "Permitir que IAs leiam suas conversas?\n\nAs conexões com \"Pode ler\" passam a ver todas as suas conversas neste computador.",
         // escrever (Fase 15): tudo que aumenta o poder da IA; desligar, tirar canal e descer o limite seguem sem caixa
         ("mcp_escrita", "ligar", true) => "Permitir que IAs enviem mensagens pelo seu WhatsApp?\n\nElas só poderão escrever texto, nos canais da lista, e só nas conexões em que você ligar \"Pode escrever\".",
@@ -522,6 +530,7 @@ async fn lite_set(app: AppHandle, key: String, on: bool) -> Result<Value, String
         "notice_win" => (&s.notice_win, None),
         "filtro_ia" => (&s.filtro_ia, None),
         "filtro_avisar" => (&s.filtro_avisar, None),
+        "audio_on" => (&s.audio_on, None),
         "autostart" => {
             if let Err(e) = set_autostart(on) {
                 eprintln!("Erro ao mudar o início com o Windows: {}", e);
@@ -769,7 +778,9 @@ fn main() {
                 save_settings(app.handle()); // tira o mcp_token do settings.json
             }
             // retidas e resultado da IA local: só neste PC (Local, não Roaming)
-            app.manage(filtro::Filtro::load(local));
+            app.manage(filtro::Filtro::load(local.clone()));
+            // transcrição de áudio: motor em whisper\ e o texto em transcricoes.json (dados locais)
+            app.manage(transcricao::Transcricao::load(local));
             filtro::esteira(app.handle().clone());
 
             setup_main_window(app).map_err(|e| {
@@ -811,7 +822,10 @@ fn main() {
             filtro::filtro_get,
             filtro::filtro_acao,
             filtro::filtro_minhas,
-            filtro::filtro_ollama
+            filtro::filtro_ollama,
+            transcricao::audio_ler,
+            transcricao::audio_transcrever,
+            transcricao::audio_motor
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -880,6 +894,8 @@ mod tests {
             ("mcp_escrita", "limite", true),
             ("mcp_conexao", "escreve_on", true),
             ("mcp_conexao", "le_on", true),
+            // Fase 7: ligar a transcrição de áudio
+            ("lite_set", "audio_on", true),
         ];
         for (c, a, on) in pede {
             assert!(aviso(c, a, on).is_some(), "{c} {a} {on} tem de pedir");
@@ -911,6 +927,11 @@ mod tests {
             ("mcp_conexao", "le_off", false),
             ("mcp_conexao", "escreve_on", false),
             ("mcp_conexao", "le_on", false),
+            // Fase 7: desligar, baixar ou apagar o motor e apagar transcrições não aumentam o poder
+            ("lite_set", "audio_on", false),
+            ("audio_motor", "baixar", false),
+            ("audio_motor", "apagar", false),
+            ("audio_motor", "limpar", false),
         ];
         for (c, a, on) in livre {
             assert!(aviso(c, a, on).is_none(), "{c} {a} {on} não pede");
