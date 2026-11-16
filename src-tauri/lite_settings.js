@@ -239,11 +239,6 @@
         #${VIEW} .wl-av { flex: none; width: 38px; height: 38px; border-radius: 50%; background: var(--wl-tile); display: grid;
             place-items: center; font-weight: 600; }
         #${VIEW} .wl-id { color: ${MUTED}; font: 12px Consolas, "Cascadia Mono", monospace; overflow-wrap: anywhere; }
-        #${VIEW} .wl-stepper { display: flex; align-items: center; gap: 8px; flex: none; }
-        #${VIEW} .wl-stepper button { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--wl-line2);
-            background: none; color: ${FG}; font-size: 18px; line-height: 1; cursor: pointer; }
-        #${VIEW} .wl-stepper button:hover { background: ${HOVER}; }
-        #${VIEW} .wl-stepper output { min-width: 34px; text-align: center; font-size: 18px; font-weight: 600; }
         #${VIEW} .wl-meter { height: 8px; border-radius: 4px; background: var(--wl-track); margin: 6px 0 2px; overflow: hidden; }
         #${VIEW} .wl-meter i { display: block; height: 100%; background: #00a884; }
         #${VIEW} .wl-fold { display: flex; align-items: center; justify-content: space-between; width: 100%; box-sizing: border-box;
@@ -300,6 +295,8 @@
     // subtela -> tela de onde veio (o Voltar volta para ela)
     const PARENT = { retidas: 'mcp', regras: 'mcp', ia: 'mcp', nova: 'mcp', pronta: 'mcp', det: 'mcp', renovada: 'det', todas: 'mcp',
         escrever: 'mcp', canais: 'escrever', addcanal: 'canais', limite: 'escrever', envios: 'escrever' };
+    let limAviso = '';    // aviso do campo Limite por hora (valor recusado)
+    let limOcupado = false;
     let busca = '';       // busca em "Adicionar canal"
     const abertas = {};   // seções recolhidas abertas ("Como a IA vê")
     let current = null;   // subtela aberta
@@ -474,6 +471,7 @@
                 nav('pen', 'Canais permitidos', e.canais.length ? e.canais.map((c) => esc(c.nome)).join(' · ') : 'Nenhum: a IA não escreve em lugar nenhum', 'canais',
                     `<span class="wl-pill g">${e.canais.length}</span>`) +
                 nav('gauge', 'Limite por hora', `${e.limite} mensagens por hora, somando todas as conexões`, 'limite') +
+                '<div class="wl-kv"><span>Intervalo entre envios: 5 segundos</span></div>' +
                 nav('clock', 'Histórico de envios', 'Hora, conexão, canal e tamanho. Nunca o texto.', 'envios') +
                 `<div class="wl-kv" style="padding-top:10px"><span>Conexões que escrevem: <b>${quem.length ? quem.map((c) => esc(c.nome)).join(', ') : 'nenhuma'}</b>. Para ligar ou desligar, abra a conexão.</span></div>` +
                 fold('exemplos', 'Como a IA vê', exemplos(e));
@@ -489,8 +487,10 @@
             `<input class="wl-field wl-busca" placeholder="Buscar conversa ou grupo" aria-label="Buscar conversa ou grupo" value="${esc(busca)}"><div class="wl-lista">${listaCanais()}</div>`],
         limite: ['Limite por hora', () => {
             const e = state.escrita;
-            return row('Mensagens por hora', 'Soma de todas as conexões.',
-                    `<div class="wl-stepper"><button data-lim="-5" aria-label="Menos">−</button><output>${e.limite}</output><button data-lim="5" aria-label="Mais">+</button></div>`) +
+            return lbl('Mensagens por hora') +
+                `<input class="wl-field wl-lim" type="number" min="1" max="100" step="1" inputmode="numeric" aria-label="Mensagens por hora" value="${e.limite}">` +
+                `<div class="wl-s wl-no wl-limaviso" role="alert">${esc(limAviso)}</div>` +
+                lbl('De 1 a 100, somando todas as conexões. Enter ou sair do campo aplica.') +
                 lbl(`Nesta hora: ${e.usadas} de ${e.limite}${e.usadas >= e.limite && e.liberaEm ? ` · libera em ${e.liberaEm} min` : ''}`) +
                 `<div class="wl-meter"><i style="width:${Math.min(100, e.usadas / e.limite * 100)}%"></i></div>` +
                 dica('limite', 'Padrão: 10. Passou do limite, a IA recebe "limite atingido" e nada é enviado. Conta Business: números altos aumentam o risco de bloqueio. Subir pede confirmação; descer, não.');
@@ -629,9 +629,11 @@
             el.innerHTML = `<header><button class="wl-back" aria-label="Voltar" title="Voltar">${BACK}</button><div class="wl-title"></div></header><div class="wl-body"></div>`;
             el.addEventListener('click', onClick);
             el.addEventListener('input', onInput);
+            el.addEventListener('change', (e) => { if (e.target.classList.contains('wl-lim')) aplicarLimite(e.target); });
             el.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' && e.target.classList.contains('wl-novo')) return addRule();
                 if (e.key === 'Enter' && e.target.classList.contains('wl-nome')) return criar();
+                if (e.key === 'Enter' && e.target.classList.contains('wl-lim')) return aplicarLimite(e.target);
                 const opt = e.target.closest('[data-tipo]');
                 if (opt && e.target === opt && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); novoTipo = opt.dataset.tipo; render(); }
                 const choice = e.target.closest('[data-pop]');
@@ -681,11 +683,27 @@
     }
 
     // ação de escrever; a resposta traz a configuração nova. Recusa na caixa (ou erro) vira aviso e a tela volta.
+    let escritaErro = '';
     async function escrita(acao, extra = {}) {
-        const r = await invoke('mcp_escrita', { acao, ...extra }).catch((e) => { toast(String(e)); return null; });
+        escritaErro = '';
+        const r = await invoke('mcp_escrita', { acao, ...extra }).catch((e) => { escritaErro = String(e); toast(escritaErro); return null; });
         if (r) state.escrita = r;
         render();
         return r;
+    }
+
+    // campo "Mensagens por hora": inteiro de 1 a 100. Inválido: aviso e nada muda. Subir pede a caixa (no Rust).
+    async function aplicarLimite(input) {
+        if (limOcupado) return;
+        const v = input.value.trim();
+        if (v === String(state.escrita.limite)) return;
+        limOcupado = true;
+        limAviso = '';
+        if (!/^[0-9]+$/.test(v) || +v < 1 || +v > 100) limAviso = 'Valor inválido: use um número inteiro de 1 a 100. Nada mudou.';
+        else if (await escrita('limite', { n: +v })) toast('Limite: ' + v + ' por hora');
+        else limAviso = escritaErro;
+        limOcupado = false;
+        render();
     }
 
     async function criar() {
@@ -769,14 +787,6 @@
         if (t.dataset.fold) { abertas[t.dataset.fold] = !abertas[t.dataset.fold]; return render(); }
         // escrever: o que aumenta o poder passa pela caixa Sim/Não do app (a recusa volta como erro)
         if (t.dataset.tirar) { if (await escrita('canal_tirar', { jid: t.dataset.tirar })) toast('Canal retirado da lista'); return; }
-        if (t.dataset.lim) {
-            // de 5 em 5 (1 é o mínimo): 10 → 5 → 1 → 5 → 10, sem cair fora dos múltiplos de 5
-            const atual = state.escrita.limite;
-            const novo = +t.dataset.lim > 0 ? Math.min(100, (Math.floor(atual / 5) + 1) * 5) : Math.max(1, Math.ceil(atual / 5) * 5 - 5);
-            if (novo === atual) return;
-            if (await escrita('limite', { n: novo })) toast('Limite: ' + novo + ' por hora');
-            return;
-        }
         if (t.dataset.addjid) {
             const x = candidatos().find((y) => y.jid === t.dataset.addjid);
             if (!x) return;
