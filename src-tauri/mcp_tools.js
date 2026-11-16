@@ -101,9 +101,9 @@
     const cap = m.caption ? ': ' + m.caption : '';
     switch (m.type) {
       case 'chat': return m.body || '';
-      case 'sticker': return '[figurinha]';
+      case 'sticker': return m.isAnimated ? '[figurinha animada]' : '[figurinha]';
       case 'image': return '[imagem' + cap + ']';
-      case 'video': case 'ptv': return '[vídeo' + cap + ']';
+      case 'video': case 'ptv': return (gif(m) ? '[GIF' : '[vídeo') + cap + ']';
       case 'ptt': case 'audio': return rotuloAudio(m, tr);
       case 'document': return '[documento' + (m.filename ? ': ' + m.filename : '') + (m.caption ? ' - ' + m.caption : '') + ']';
       case 'location': return '[localização]';
@@ -449,19 +449,67 @@
     } finally { clearTimeout(t); }
   }
 
-  // reduz para JPEG de até LADO_MAX px e devolve base64. Figurinha animada: primeiro quadro.
-  async function imagemJpeg(m) {
-    const bmp = await createImageBitmap(new Blob([await baixarMidia(m)], { type: m.mimetype }));
-    const k = Math.min(1, LADO_MAX / Math.max(bmp.width, bmp.height));
-    const cv = new OffscreenCanvas(Math.max(1, Math.round(bmp.width * k)), Math.max(1, Math.round(bmp.height * k)));
+  // JPEG de até LADO_MAX px (nunca aumenta) em base64. src = ImageBitmap, VideoFrame ou <video>.
+  async function jpeg(src, w, h) {
+    const k = Math.min(1, LADO_MAX / Math.max(w, h));
+    const cv = new OffscreenCanvas(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
     const g = cv.getContext('2d');
     g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); // figurinha com transparência não vira preta
-    g.drawImage(bmp, 0, 0, cv.width, cv.height);
-    bmp.close();
+    g.drawImage(src, 0, 0, cv.width, cv.height);
     return b64(await (await cv.convertToBlob({ type: 'image/jpeg', quality: 0.8 })).arrayBuffer());
   }
 
+  // n quadros espalhados (no meio de n fatias iguais) de N: [1/8, 3/8, 5/8, 7/8] para n = 4
+  const espalhar = (N, n) => Array.from({ length: Math.min(n, N) }, (_, i) => Math.floor((i + 0.5) * N / Math.min(n, N)));
+
+  // GIF do WhatsApp = mp4 em laço. <video> + canvas, sem tocar: busca cada instante e desenha.
+  async function quadrosVideo(buf, mime, n) {
+    const url = URL.createObjectURL(new Blob([buf], { type: mime })), v = document.createElement('video');
+    const espera = (ev, acao) => new Promise((ok, no) => {
+      const t = setTimeout(() => no(new Error('vídeo: tempo esgotado')), 10000);
+      v.addEventListener(ev, () => { clearTimeout(t); ok(); }, { once: true });
+      v.addEventListener('error', () => { clearTimeout(t); no(new Error('vídeo: não abriu')); }, { once: true });
+      acao();
+    });
+    try {
+      v.muted = true; v.preload = 'auto';
+      await espera('loadeddata', () => { v.src = url; });
+      const out = [], d = v.duration || 0;
+      for (let i = 0; i < n; i++) {
+        await espera('seeked', () => { v.currentTime = d * (i + 0.5) / n; });
+        out.push(await jpeg(v, v.videoWidth, v.videoHeight));
+      }
+      return out;
+    } finally { v.removeAttribute('src'); v.load(); URL.revokeObjectURL(url); }
+  }
+
+  // Devolve de 1 a n JPEGs. Imagem comum e figurinha parada: 1. GIF e figurinha animada: n quadros espalhados.
+  // A mídia é o buffer que o WhatsApp guarda no cache dele: sempre trabalhe numa cópia (APIs podem desanexar).
+  async function quadros(m, n) {
+    const buf = (await baixarMidia(m)).slice(0);
+    if (m.type === 'video') return quadrosVideo(buf, m.mimetype, n);
+    if (m.type === 'sticker' && typeof ImageDecoder !== 'undefined') {
+      const dec = new ImageDecoder({ data: buf, type: m.mimetype || 'image/webp' });
+      try {
+        await dec.tracks.ready; await dec.completed;
+        const out = [];
+        for (const i of espalhar(dec.tracks.selectedTrack.frameCount, n)) {
+          const { image } = await dec.decode({ frameIndex: i });
+          out.push(await jpeg(image, image.displayWidth, image.displayHeight));
+          image.close();
+        }
+        return out;
+      } finally { dec.close(); }
+    }
+    const bmp = await createImageBitmap(new Blob([buf], { type: m.mimetype }));
+    try { return [await jpeg(bmp, bmp.width, bmp.height)]; } finally { bmp.close(); }
+  }
+
+  const gif = m => m.type === 'video' && !!m.isGif;
+  const QUADROS = 4, IMAGENS_MAX = 20, PRAZO_IMAGENS = 30000;
+
   async function ver_imagens({ conversa, desde, ate, limite = 10 } = {}, ctx = {}) {
+    const inicio = Date.now();
     if (!conversa) throw new Error('Informe o nome da conversa.');
     limite = Math.max(1, Math.min(Math.floor(+limite) || 10, 20));
     const t0 = desde ? parseDia(desde, false) : null;
@@ -469,28 +517,38 @@
     if (t0 !== null && t1 !== null && t0 >= t1) throw new Error('"desde" é depois de "ate".');
     const chat = acharConversa(conversa);
     const nome = seguro(chatName(chat));
-    const { novas } = await varrer(chat, t0, t1, limite, m => m.type !== 'image' && m.type !== 'sticker');
+    const { novas } = await varrer(chat, t0, t1, limite, m => m.type !== 'image' && m.type !== 'sticker' && !gif(m));
     const total = novas.length;
     const sel = novas.sort((a, b) => b.t - a.t).slice(0, limite).reverse();
     const f = await filtrar(sel.map(m => item(m, nome, autorDe(m, chat))), true);
+    // quadros por animação: 4; com muitas animações, menos (mínimo 2) para a chamada não passar de ~20 imagens
+    const anim = sel.filter(m => gif(m) || (m.type === 'sticker' && m.isAnimated)).length;
+    const nq = anim ? Math.max(2, Math.min(QUADROS, Math.floor((IMAGENS_MAX - (sel.length - anim)) / anim))) : QUADROS;
     const content = [{ type: 'text', text: AVISO_IMG + avisoIA(f) + ' verificacaoIA: ' + f.ia + '.' },
-      { type: 'text', text: 'Conversa "' + nome + '": ' + sel.length + ' imagem(ns)/figurinha(s)' +
-        (total > limite ? ' (as ' + limite + ' mais recentes do período; há mais)' : '') + '.' }];
+      { type: 'text', text: 'Conversa "' + nome + '": ' + sel.length + ' imagem(ns)/figurinha(s)/GIF(s)' +
+        (total > limite ? ' (as ' + limite + ' mais recentes do período; há mais)' : '') +
+        '.' + (anim ? ' GIF e figurinha animada vêm como ' + nq + ' quadros espalhados, em ordem, logo depois do rótulo.' : '') }];
+    let vistas = 0;
     for (const m of sel) {
       const autor = autorDe(m, chat);
       // legenda retida: nem a legenda nem a imagem vão
       if (f.retidas.has(keyOf(m))) { content.push({ type: 'text', text: hora(m.t) + ' · ' + autor + ' · ' + MARCA }); continue; }
-      const rotulo = hora(m.t) + ' · ' + autor + ' · ' + (m.type === 'sticker' ? 'figurinha' : 'imagem') +
+      const rotulo = hora(m.t) + ' · ' + autor + ' · ' + (gif(m) ? 'GIF' : m.type === 'sticker' ? 'figurinha' : 'imagem') +
         (m.caption ? ' · legenda: ' + m.caption : '');
-      let data = null, nota = '';
-      try { data = await imagemJpeg(m); } catch (e) {
+      if (Date.now() - inicio > PRAZO_IMAGENS) { content.push({ type: 'text', text: rotulo + ' [não processada: o tempo da chamada acabou; peça de novo com um período menor]' }); continue; }
+      let imgs = null, nota = '';
+      try {
+        imgs = await Promise.race([quadros(m, nq), dorme(25000).then(() => { throw new Error('tempo'); })]);
+      } catch (e) {
         // original expirou (404) ou falhou: cai para a miniatura que a mensagem já traz
-        if (typeof m.body === 'string' && m.body.length > 100) { data = m.body; nota = ' (miniatura; o original expirou)'; }
+        if (typeof m.body === 'string' && m.body.length > 100) { imgs = [m.body]; nota = ' (miniatura; o original expirou)'; }
       }
-      if (data) { content.push({ type: 'text', text: rotulo + nota }, { type: 'image', data, mimeType: 'image/jpeg' }); }
-      else content.push({ type: 'text', text: rotulo + ' [imagem indisponível]' });
+      if (imgs) {
+        vistas++;
+        content.push({ type: 'text', text: rotulo + nota + (imgs.length > 1 ? ' · ' + imgs.length + ' quadros' : '') },
+          ...imgs.map(data => ({ type: 'image', data, mimeType: 'image/jpeg' })));
+      } else content.push({ type: 'text', text: rotulo + ' [imagem indisponível]' });
     }
-    const vistas = content.filter(b => b.type === 'image').length;
     ctx.uso = { conversa: nome, n: vistas };
     avisarLeitura(ctx, nome, vistas + (vistas === 1 ? ' imagem' : ' imagens'), f.novas, 'viu');
     return { content };
