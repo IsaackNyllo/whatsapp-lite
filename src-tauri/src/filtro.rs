@@ -352,8 +352,13 @@ pub fn filtro_get(app: AppHandle) -> Value {
 }
 
 /// Liberar (a IA passa a ler) ou apagar (some da lista e continua escondida da IA). Nunca executa nada.
+/// Liberar uma retida pede "Sim" na caixa do Windows (`crate::confirma`).
 #[tauri::command]
-pub fn filtro_acao(app: AppHandle, id: String, acao: String) -> Value {
+pub async fn filtro_acao(app: AppHandle, id: String, acao: String) -> Result<Value, String> {
+    let existe = app.state::<Filtro>().dados.lock().unwrap().retidas.iter().any(|r| r.id == id && r.estado == "retida");
+    if existe {
+        crate::confirma(&app, "filtro_acao", &acao, false).await?;
+    }
     {
         let filtro = app.state::<Filtro>();
         let mut d = filtro.dados.lock().unwrap();
@@ -369,12 +374,13 @@ pub fn filtro_acao(app: AppHandle, id: String, acao: String) -> Value {
             d.salvar_retidas();
         }
     }
-    filtro_get(app)
+    Ok(filtro_get(app))
 }
 
 /// Regras do usuário: [{tipo: "texto"|"regex", v}]. Fica no settings.json.
+/// A lista nova substitui a antiga: se alguma regra de antes some (remover, editar), pede "Sim" na caixa do Windows.
 #[tauri::command]
-pub fn filtro_minhas(app: AppHandle, regras: Vec<Value>) -> Value {
+pub async fn filtro_minhas(app: AppHandle, regras: Vec<Value>) -> Result<Value, String> {
     let limpas: Vec<Value> = regras
         .iter()
         .filter_map(|r| {
@@ -384,9 +390,14 @@ pub fn filtro_minhas(app: AppHandle, regras: Vec<Value>) -> Value {
         })
         .take(200)
         .collect();
+    let remove = app.state::<crate::Settings>().filtro_minhas.lock().unwrap()
+        .as_array().is_some_and(|antes| antes.iter().any(|r| !limpas.contains(r)));
+    if remove {
+        crate::confirma(&app, "filtro_minhas", "remover", false).await?;
+    }
     *app.state::<crate::Settings>().filtro_minhas.lock().unwrap() = Value::Array(limpas);
     crate::save_settings(&app);
-    filtro_get(app)
+    Ok(filtro_get(app))
 }
 
 /// "Testar conexão": lista de modelos do Ollama (não carrega o modelo na placa de vídeo).

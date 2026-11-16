@@ -423,9 +423,58 @@ fn lite_get(app: AppHandle) -> Value {
     lite_state(&app)
 }
 
+/// Texto da caixa Sim/Não de cada ação sensível; None = segue sem perguntar.
+/// `alvo` é a ação ou a opção; `on` é o valor novo (só no lite_set). O texto é fixo: nunca vem da página.
+fn aviso(comando: &str, alvo: &str, on: bool) -> Option<&'static str> {
+    Some(match (comando, alvo, on) {
+        ("filtro_acao", "liberar", _) => "Liberar a mensagem retida para a IA?\n\nA IA conectada passa a ler essa mensagem nas próximas leituras. Nada é executado.",
+        ("filtro_minhas", "remover", _) => "Remover regra do filtro?\n\nO que essa regra segurava passa a chegar à IA.",
+        ("lite_set", "filtro_ia", false) => "Desligar a verificação por IA local?\n\nSó as regras continuam valendo: o filtro fica mais fraco.",
+        ("lite_set", "mcp_notify", false) => "Desligar o aviso quando uma IA ler?\n\nVocê deixa de ver quando um app lê suas conversas.",
+        ("lite_set", "notice_win", false) => "Desligar o aviso de leitura na janela?\n\nCom a janela aberta, você deixa de ver quando um app lê suas conversas.",
+        ("lite_set", "filtro_avisar", false) => "Desligar o aviso de mensagem retida?\n\nVocê deixa de ver quando o filtro segura uma mensagem.",
+        ("lite_set", "mcp_enabled", true) => "Permitir que IAs leiam suas conversas?\n\nOs apps conectados passam a ler suas conversas neste computador.",
+        ("mcp_conexao", "criar", _) => "Criar uma conexão nova?\n\nEla ganha uma chave que dá acesso de leitura às suas conversas.",
+        ("mcp_conexao", "renovar", _) => "Renovar a chave desta conexão?\n\nA chave antiga para de valer e é criada uma chave nova com acesso de leitura às suas conversas.",
+        ("mcp_conexao", "revogar_todas", _) => "Revogar todas as conexões?\n\nTodos os apps de IA perdem o acesso agora e as chaves são apagadas.",
+        // "conectar" é o comando com a chave dentro; só o endereço copia sem perguntar
+        ("mcp_copiar", "chave" | "conectar", _) => "Copiar a chave de acesso?\n\nQuem tiver a chave lê suas conversas. Cole só no app que você vai conectar.",
+        _ => return None,
+    })
+}
+
+pub const RECUSOU: &str = "Você recusou na caixa do Windows. Nada mudou.";
+
+/// Ação sensível: caixa nativa do Windows "Sim / Não", aberta pelo app (a página não clica nela).
+/// Falha fechada: qualquer coisa diferente de "Sim" (Não, caixa que não abriu) devolve erro.
+/// Async: a caixa roda numa thread própria (rfd) e a janela segue desenhando e respondendo.
+pub async fn confirma(app: &AppHandle, comando: &str, alvo: &str, on: bool) -> Result<(), String> {
+    static ABERTA: AtomicBool = AtomicBool::new(false);
+    let Some(texto) = aviso(comando, alvo, on) else { return Ok(()) };
+    // uma caixa por vez: a página não empilha caixas para o clique cair na errada
+    if ABERTA.swap(true, Ordering::SeqCst) {
+        return Err("Já há uma confirmação aberta na caixa do Windows. Nada mudou.".into());
+    }
+    let mut caixa = rfd::AsyncMessageDialog::new()
+        .set_title("WhatsApp Lite")
+        .set_description(texto)
+        .set_level(rfd::MessageLevel::Warning)
+        .set_buttons(rfd::MessageButtons::YesNo);
+    if let Some(main) = app.get_webview_window("main") {
+        caixa = caixa.set_parent(&main);
+    }
+    let sim = caixa.show().await == rfd::MessageDialogResult::Yes;
+    ABERTA.store(false, Ordering::SeqCst);
+    if sim { Ok(()) } else { Err(RECUSOU.into()) }
+}
+
 /// Liga/desliga uma opção pela tela; a bandeja acompanha.
 #[tauri::command]
-fn lite_set(app: AppHandle, key: String, on: bool) -> Value {
+async fn lite_set(app: AppHandle, key: String, on: bool) -> Result<Value, String> {
+    // só pergunta quando o valor muda de verdade
+    if lite_state(&app)[key.as_str()] != on {
+        confirma(&app, "lite_set", &key, on).await?;
+    }
     let s = app.state::<Settings>();
     let tray = app.state::<TrayItems>();
     let (flag, item) = match key.as_str() {
@@ -441,9 +490,9 @@ fn lite_set(app: AppHandle, key: String, on: bool) -> Value {
             if let Err(e) = set_autostart(on) {
                 eprintln!("Erro ao mudar o início com o Windows: {}", e);
             }
-            return lite_state(&app);
+            return Ok(lite_state(&app));
         }
-        _ => return lite_state(&app),
+        _ => return Ok(lite_state(&app)),
     };
     flag.store(on, Ordering::Relaxed);
     save_settings(&app);
@@ -453,7 +502,7 @@ fn lite_set(app: AppHandle, key: String, on: bool) -> Value {
     if on && key == "mcp_enabled" {
         mcp_listen(&app, &tray.mcp);
     }
-    lite_state(&app)
+    Ok(lite_state(&app))
 }
 
 /// Visual do aviso de mensagem dentro da conversa.
@@ -761,5 +810,55 @@ mod tests {
         declarados.sort();
         assert_eq!(handler, declarados);
         assert!(handler.len() >= 22);
+    }
+
+    // as 7 ações sensíveis pedem a caixa Sim/Não; o resto (ligar avisos, pausar, apagar, aparência...) não
+    #[test]
+    fn caixa_sim_nao_nas_acoes_sensiveis() {
+        use super::aviso;
+        let pede = [
+            ("filtro_acao", "liberar", false),
+            ("filtro_minhas", "remover", false),
+            ("lite_set", "filtro_ia", false),
+            ("lite_set", "mcp_notify", false),
+            ("lite_set", "notice_win", false),
+            ("lite_set", "filtro_avisar", false),
+            ("lite_set", "mcp_enabled", true),
+            ("mcp_conexao", "criar", false),
+            ("mcp_conexao", "renovar", false),
+            ("mcp_conexao", "revogar_todas", false),
+            ("mcp_copiar", "chave", false),
+            ("mcp_copiar", "conectar", false),
+        ];
+        for (c, a, on) in pede {
+            assert!(aviso(c, a, on).is_some(), "{c} {a} {on} tem de pedir");
+        }
+        let livre = [
+            ("filtro_acao", "apagar", false),
+            ("filtro_minhas", "adicionar", false),
+            ("lite_set", "filtro_ia", true),
+            ("lite_set", "mcp_notify", true),
+            ("lite_set", "notice_win", true),
+            ("lite_set", "filtro_avisar", true),
+            ("lite_set", "mcp_enabled", false),
+            ("lite_set", "autostart", true),
+            ("lite_set", "popup_on", false),
+            ("lite_set", "run_in_background", false),
+            ("mcp_conexao", "pausar", false),
+            ("mcp_conexao", "ativar", false),
+            ("mcp_conexao", "revogar", false),
+            ("mcp_conexao", "limpar", false),
+            ("mcp_copiar", "endereco", false),
+        ];
+        for (c, a, on) in livre {
+            assert!(aviso(c, a, on).is_none(), "{c} {a} {on} não pede");
+        }
+        // cada comando sensível chama a caixa antes de mexer em algo
+        let fontes = [include_str!("main.rs"), include_str!("mcp.rs"), include_str!("filtro.rs")].concat();
+        for cmd in ["lite_set", "mcp_conexao", "mcp_copiar", "filtro_acao", "filtro_minhas"] {
+            let corpo = fontes.split(&format!("async fn {cmd}(")).nth(1).unwrap_or_else(|| panic!("{cmd} não é async"));
+            let corpo = corpo.split("\n}").next().unwrap(); // fim da função (mcp.rs e filtro.rs têm CRLF)
+            assert!(corpo.contains(&format!("confirma(&app, \"{cmd}\"")), "{cmd} sem a caixa Sim/Não");
+        }
     }
 }

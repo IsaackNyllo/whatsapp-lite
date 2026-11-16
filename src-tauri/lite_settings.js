@@ -510,14 +510,19 @@
         const v = input.value.trim();
         if (!v) return;
         if (tipo === 'regex' && !window.__wlFiltro.valida(v)) return toast('Padrão inválido: confira a regex');
-        fil = await invoke('filtro_minhas', { regras: [...fil.minhas, { tipo, v }] });
+        const r = await invoke('filtro_minhas', { regras: [...fil.minhas, { tipo, v }] }).catch((e) => { toast(String(e)); return null; });
+        if (!r) return;
+        fil = r;
         render();
         toast('Regra adicionada');
     }
 
-    // ação numa conexão; a resposta traz a lista nova (com a chave mascarada)
+    // ação numa conexão; a resposta traz a lista nova (com a chave mascarada).
+    // Criar, renovar e revogar todas passam pela caixa Sim/Não do app: a recusa volta em `falha`.
+    let falha = '';
     async function conexao(acao, extra = {}) {
-        const r = await invoke('mcp_conexao', { acao, id: cur, ...extra }).catch(() => null);
+        falha = '';
+        const r = await invoke('mcp_conexao', { acao, id: cur, ...extra }).catch((e) => { falha = String(e); return null; });
         if (r) state.conexoes = r.conexoes;
         asking = null;
         return r && r.ok ? r : null;
@@ -526,7 +531,7 @@
     async function criar() {
         const nome = novoNome.trim() || (novoTipo === 'outro' ? 'Meu app' : tipoDe(novoTipo)[1]);
         const r = await conexao('criar', { nome, tipo: novoTipo });
-        if (!r) return toast('Não deu para criar a conexão.');
+        if (!r) return toast(falha || 'Não deu para criar a conexão.');
         cur = r.id;
         go('pronta');
     }
@@ -595,21 +600,24 @@
         if (t.dataset.nav) return open(t.dataset.nav);
         if (t.dataset.det) { cur = +t.dataset.det; return open('det'); }
         if (t.dataset.cp) {
-            const ok = await invoke('mcp_copiar', { id: cur, oque: t.dataset.cp }).catch(() => false);
+            const ok = await invoke('mcp_copiar', { id: cur, oque: t.dataset.cp }).catch((e) => String(e));
             const c = conn();
             const what = { endereco: 'Endereço copiado', chave: 'Chave copiada' }[t.dataset.cp]
                 || (c && (c.tipo === 'codex' || c.tipo === 'outro') ? 'Trecho copiado' : 'Comando copiado');
-            return toast(ok ? what : 'Não deu para copiar. Tente de novo.');
+            return toast(ok === true ? what : ok || 'Não deu para copiar. Tente de novo.');
         }
         if (t.dataset.lib || t.dataset.del) {
             const r = fil.retidas[+(t.dataset.lib || t.dataset.del)];
             if (!r) return;
-            fil = await invoke('filtro_acao', { id: r.id, acao: t.dataset.lib ? 'liberar' : 'apagar' });
+            const novo = await invoke('filtro_acao', { id: r.id, acao: t.dataset.lib ? 'liberar' : 'apagar' }).catch((e) => { toast(String(e)); return null; });
+            if (!novo) return;
+            fil = novo;
             render();
             return toast(t.dataset.lib ? 'Liberada: a IA passa a ver essa mensagem' : 'Apagada. Continua escondida da IA');
         }
         if (t.dataset.rm) {
-            fil = await invoke('filtro_minhas', { regras: fil.minhas.filter((_, i) => i !== +t.dataset.rm) });
+            const novo = await invoke('filtro_minhas', { regras: fil.minhas.filter((_, i) => i !== +t.dataset.rm) }).catch((e) => { toast(String(e)); return null; });
+            if (novo) fil = novo;
             return render();
         }
         if (t.dataset.c) { state.bubble.color = t.dataset.c; paintColor(); return saveBubble(); }
@@ -625,12 +633,12 @@
             const ok = await conexao('renovar');
             if (ok) { toast('Chave renovada'); return go('renovada'); }
             render();
-            return toast('Não deu para renovar a chave.');
+            return toast(falha || 'Não deu para renovar a chave.');
         }
         if (act === 'revogar' || act === 'revogar_todas') {
             const ok = await conexao(act);
             go('mcp');
-            return toast(!ok ? 'Não deu para revogar.' : act === 'revogar' ? 'Conexão revogada' : 'Todas as conexões foram revogadas');
+            return toast(!ok ? falha || 'Não deu para revogar.' : act === 'revogar' ? 'Conexão revogada' : 'Todas as conexões foram revogadas');
         }
         if (act === 'limpar') { await conexao('limpar'); render(); return toast('Histórico limpo'); }
         const k = t.dataset.k;
@@ -644,7 +652,10 @@
         }
         if (k === 'bubble_mode') return on && invoke('bubble_enter');
         if (k.startsWith('b.')) { state.bubble[k.slice(2)] = on; render(); return saveBubble(); }
-        state = await invoke('lite_set', { key: k, on });
+        // recusa na caixa Sim/Não do app: nada mudou, o interruptor volta ao valor real
+        const novo = await invoke('lite_set', { key: k, on }).catch((e) => { toast(String(e)); return null; });
+        if (!novo) return render();
+        state = novo;
         if (k === 'popup_on') window.__wlPopup.setOn(state.popup_on);
         if (k === 'notice_win') window.__wlPopup.setNotice(state.notice_win, state.notice_pos);
         render();

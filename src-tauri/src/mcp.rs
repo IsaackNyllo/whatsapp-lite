@@ -230,18 +230,22 @@ impl Conexoes {
 }
 
 /// Criar, pausar/ativar, renovar a chave, revogar, revogar todas, limpar histórico. Nunca devolve a chave.
+/// Criar, renovar e revogar todas pedem "Sim" na caixa do Windows (`crate::confirma`).
 #[tauri::command]
-pub fn mcp_conexao(app: AppHandle, acao: String, id: Option<u64>, nome: Option<String>, tipo: Option<String>) -> Value {
+pub async fn mcp_conexao(app: AppHandle, acao: String, id: Option<u64>, nome: Option<String>, tipo: Option<String>) -> Result<Value, String> {
+    crate::confirma(&app, "mcp_conexao", &acao, false).await?;
     let conexoes = app.state::<Conexoes>();
     let r = conexoes.acao(&acao, id.unwrap_or(0), nome.as_deref().unwrap_or(""), tipo.as_deref().unwrap_or(""));
-    json!({ "ok": r.is_some(), "id": r, "conexoes": conexoes.visao() })
+    Ok(json!({ "ok": r.is_some(), "id": r, "conexoes": conexoes.visao() }))
 }
 
 /// Copia comando, chave ou endereço de uma conexão; a chave real fica no Rust.
+/// O que leva a chave (chave, comando) pede "Sim" na caixa do Windows; o endereço não.
 #[tauri::command]
-pub fn mcp_copiar(conexoes: State<Conexoes>, id: u64, oque: String) -> bool {
-    let Some(texto) = conexoes.para_copiar(id, &oque) else { return false };
-    copy_to_clipboard(&texto).map_err(|e| eprintln!("Erro ao copiar: {e}")).is_ok()
+pub async fn mcp_copiar(app: AppHandle, id: u64, oque: String) -> Result<bool, String> {
+    let Some(texto) = app.state::<Conexoes>().para_copiar(id, &oque) else { return Ok(false) };
+    crate::confirma(&app, "mcp_copiar", &oque, false).await?;
+    Ok(copy_to_clipboard(&texto).map_err(|e| eprintln!("Erro ao copiar: {e}")).is_ok())
 }
 
 pub struct Request {
