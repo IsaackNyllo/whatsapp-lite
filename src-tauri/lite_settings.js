@@ -239,6 +239,10 @@
         #${VIEW} .wl-av { flex: none; width: 38px; height: 38px; border-radius: 50%; background: var(--wl-tile); display: grid;
             place-items: center; font-weight: 600; }
         #${VIEW} .wl-id { color: ${MUTED}; font: 12px Consolas, "Cascadia Mono", monospace; overflow-wrap: anywhere; }
+        #${VIEW} .wl-field.wl-num { display: inline-block; width: 84px; margin: 0; padding: 8px 6px; text-align: center; }
+        #${VIEW} .wl-salva { display: flex; gap: 8px; align-items: center; flex: none; }
+        #${VIEW} .wl-chan[data-canal] { cursor: pointer; }
+        #${VIEW} .wl-chan[data-canal]:hover { background: ${HOVER}; }
         #${VIEW} .wl-meter { height: 8px; border-radius: 4px; background: var(--wl-track); margin: 6px 0 2px; overflow: hidden; }
         #${VIEW} .wl-meter i { display: block; height: 100%; background: #00a884; }
         #${VIEW} .wl-fold { display: flex; align-items: center; justify-content: space-between; width: 100%; box-sizing: border-box;
@@ -296,9 +300,9 @@
     let teste = null;     // último "Testar conexão" do Ollama
     // subtela -> tela de onde veio (o Voltar volta para ela)
     const PARENT = { retidas: 'mcp', regras: 'mcp', ia: 'mcp', nova: 'mcp', pronta: 'mcp', det: 'mcp', renovada: 'det', todas: 'mcp',
-        escrever: 'mcp', canais: 'escrever', addcanal: 'canais', limite: 'escrever', envios: 'escrever', audio: 'mcp', midia: 'mcp' };
-    let limAviso = '';    // aviso do campo Limite por hora (valor recusado)
-    let limOcupado = false;
+        escrever: 'mcp', canais: 'escrever', addcanal: 'canais', canal: 'canais', envios: 'escrever', audio: 'mcp', midia: 'mcp' };
+    let canalJid = null;  // canal aberto (tela "canal")
+    let escOcupado = false; // campo de limite ou de intervalo sendo salvo
     let midiaOcupado = false;
     let midiaAviso = '';  // aviso dos campos de "Imagens no resumo" (valor recusado)
     let busca = '';       // busca em "Adicionar canal"
@@ -361,7 +365,7 @@
         ? (p === 0 ? 'Grupo · só você' : p == null ? 'Grupo' : `Grupo · ${p + 1} pessoas`)
         : (p === 0 ? 'Você (mensagens para você mesmo)' : 'Contato');
     // recusa guardada como o texto que a IA recebeu -> motivo curto para a lista
-    const MOTIVOS = [['não está na lista', 'canal fora da lista'], ['limite de', 'limite por hora'], ['texto vazio', 'texto vazio'],
+    const MOTIVOS = [['não está na lista', 'canal fora da lista'], ['limite d', 'limite do canal'], ['texto vazio', 'texto vazio'],
         ['o máximo é', 'texto longo demais'], ['escrever está desligado', 'escrever desligado'], ['não pode escrever', 'sem "Pode escrever"'],
         ['mais de um canal', 'nome de canal repetido'], ['não encontrado no WhatsApp', 'canal não achado no WhatsApp'], ['não confirmou', 'o WhatsApp não confirmou']];
     const motivo = (r) => { const m = MOTIVOS.find(([k]) => String(r).includes(k)); return m ? 'Recusada: ' + m[1] : 'Falhou'; };
@@ -391,12 +395,17 @@
         return l.length ? l.map((x) => `<div class="wl-chan"><div class="wl-av">${esc(Array.from(x.nome)[0] || '?')}</div><div class="wl-txt"><div class="wl-t">${esc(x.nome)}</div><div class="wl-s">${pessoasTxt(x.jid, pessoasDe(x.c))}</div></div><button class="wl-btn" data-addjid="${esc(x.jid)}">Adicionar</button></div>`).join('')
             : '<div class="wl-empty">Nenhuma conversa encontrada.</div>';
     };
+    // barra de uso da hora de um canal (vermelha com "Limite atingido")
+    const uso = (c) => { const cheio = c.usadas >= c.limite; return `<div class="wl-s" style="padding:6px 0 0">${cheio ? '<b class="wl-no">Limite atingido</b> · ' : ''}Nesta hora: ${c.usadas} de ${c.limite}${cheio && c.liberaEm ? ` · libera em ${c.liberaEm} min` : ''}</div><div class="wl-meter"><i style="width:${Math.min(100, c.usadas / c.limite * 100)}%${cheio ? ';background:var(--WDS-secondary-negative, #fb5061)' : ''}"></i></div>`; };
+    const canalAtual = () => (state.escrita.canais || []).find((c) => c.jid === canalJid);
+    const campoNum = (cls, min, max, valor, rotulo, btn) => `<span class="wl-salva"><input class="wl-field wl-num ${cls}" type="number" min="${min}" max="${max}" step="1" inputmode="numeric" aria-label="${rotulo}" value="${valor}"><button class="wl-btn" data-act="${btn}">Salvar</button></span>`;
     const exemplos = (e) => {
         const nomes = e.canais.length ? e.canais.map((c) => esc(c.nome)).join(' e ') : 'nenhum';
+        const [a, b] = e.canais.length > 1 ? [e.canais[0], e.canais[1]] : [e.canais[0] || { nome: 'Meu', limite: 10 }, null];
         const ex = (q, a) => `<div class="wl-ex"><div>${q}</div><div class="wl-ans">${a}</div></div>`;
         return ex('Você, no celular: "manda \'cheguei\' no Meu"', '<b class="wl-ok">Enviada.</b> A bolinha avisa na tela do PC.') +
             ex('Você: "avisa a Família que vou atrasar"', '<b class="wl-no">Nada enviado.</b> "Família" não está na lista de canais permitidos.') +
-            ex(`Você: mais uma mensagem, além das ${e.limite} da hora`, `<b class="wl-no">Nada enviado.</b> Limite de ${e.limite} por hora atingido; a IA recebe em quantos minutos libera.`) +
+            ex(`Você: a ${a.limite + 1}ª mensagem da hora no ${esc(a.nome)}`, `<b class="wl-no">Nada enviado.</b> Limite do ${esc(a.nome)} (${a.limite} por hora) atingido; libera em N min. ${b ? `O ${esc(b.nome)} continua liberado.` : 'Os outros canais seguem liberados.'}`) +
             ex('Conexão que só escreve: "o que a Mãe disse hoje?"', `<b class="wl-no">Nada lido.</b> Esta conexão não tem "Pode ler". Ela só vê os nomes dos canais: ${nomes}.`) +
             `<div class="wl-bubble"><i style="background:#fff">${APP_ICONS.gemini.replace(/(width|height)="34"/g, '$1="22"')}</i><div><div class="wl-n">Gemini CLI enviou para Meu (exemplo)</div><div class="wl-m">7 caracteres · "cheguei"</div></div></div>` +
             kv('O aviso de envio na tela do PC não tem interruptor: quem escreve por você sempre avisa.');
@@ -444,7 +453,7 @@
                 cs.map((c) => `<button class="wl-conn" data-det="${c.id}">${tile(c.tipo)}<div class="wl-txt"><div class="wl-t">${esc(c.nome)}</div><div class="wl-s">${sub(c)}</div></div><span class="wl-chips">${c.le ? '<span class="wl-state">Lê</span>' : ''}${c.escreve ? '<span class="wl-state w">Escreve</span>' : ''}<span class="wl-state${c.ativa ? '' : ' off'}">${c.ativa ? 'Ativa' : 'Pausada'}</span></span>${CHEV}</button>`).join('') +
                 '<button class="wl-newconn" data-act="nova"><span class="wl-plus">+</span>Nova conexão</button>' +
                 group('Escrever <span class="wl-new">novo</span>') +
-                nav('pen', 'Escrever', e.ligado ? `Ligado · ${e.canais.length} ${e.canais.length === 1 ? 'canal' : 'canais'} · limite ${e.limite} por hora` : 'Desligado: nenhuma IA envia mensagem', 'escrever',
+                nav('pen', 'Escrever', e.ligado ? `Ligado · ${e.canais.length} ${e.canais.length === 1 ? 'canal' : 'canais'} · limite por canal` : 'Desligado: nenhuma IA envia mensagem', 'escrever',
                     `<span class="wl-state${e.ligado ? ' w' : ' off'}">${e.ligado ? 'Ligado' : 'Desligado'}</span>`) +
                 group('Filtro de mensagens') +
                 dica('filtro', 'Antes de a IA ver uma conversa, o app tira as mensagens que parecem <b>ordens para ela</b> ou <b>comandos de computador</b>. Elas ficam guardadas aqui, só no seu PC, para você decidir.') +
@@ -473,37 +482,34 @@
                 (fechadas().length ? `<div class="wl-actions"><button class="wl-btn" data-act="dicas">Mostrar dicas escondidas (${fechadas().length})</button></div>` : '');
         }],
         escrever: ['Escrever', () => {
-            const e = state.escrita, quem = (state.conexoes || []).filter((c) => c.escreve);
+            const e = state.escrita;
             return `<div class="wl-killbar${e.ligado ? ' on' : ''}"><div class="wl-txt"><div class="wl-t">${e.ligado ? 'Escrever ligado' : 'Escrever desligado'}</div>` +
-                `<div class="wl-s">${e.ligado ? `Nesta hora: ${e.usadas} de ${e.limite} mensagens.` : 'Nenhuma IA consegue enviar mensagem. É o padrão.'}</div></div>` +
+                `<div class="wl-s">${e.ligado ? `Nesta hora: ${e.usadas} ${e.usadas === 1 ? 'mensagem enviada' : 'mensagens enviadas'}, somando os canais.` : 'Nenhuma IA consegue enviar mensagem. É o padrão.'}</div></div>` +
                 (e.ligado ? '<button class="wl-btn wl-danger" data-act="desligar_tudo">Desligar tudo</button>' : sw('escrita_on', false, 'Ligar escrever')) + '</div>' +
-                dica('escrever', 'Só texto, só nos canais da lista e só nas conexões em que você ligar "Pode escrever". Pedido para canal fora da lista não envia nada.') +
-                nav('pen', 'Canais permitidos', e.canais.length ? e.canais.map((c) => esc(c.nome)).join(' · ') : 'Nenhum: a IA não escreve em lugar nenhum', 'canais',
+                dica('escrever', 'Só texto, só nos canais da lista e só nas conexões em que você ligar "Pode escrever". A IA não escolhe o canal.') +
+                nav('pen', 'Canais permitidos', e.canais.length ? e.canais.map((c) => `${esc(c.nome)} ${c.usadas}/${c.limite} por hora`).join(' · ') : 'Nenhum: a IA não escreve em lugar nenhum', 'canais',
                     `<span class="wl-pill g">${e.canais.length}</span>`) +
-                nav('gauge', 'Limite por hora', `${e.limite} mensagens por hora, somando todas as conexões`, 'limite') +
-                '<div class="wl-kv"><span>Intervalo entre envios: 5 segundos</span></div>' +
                 nav('clock', 'Histórico de envios', 'Hora, conexão, canal e tamanho. Nunca o texto.', 'envios') +
-                `<div class="wl-kv" style="padding-top:10px"><span>Conexões que escrevem: <b>${quem.length ? quem.map((c) => esc(c.nome)).join(', ') : 'nenhuma'}</b>. Para ligar ou desligar, abra a conexão.</span></div>` +
+                row('Intervalo entre envios', 'Segundos entre uma mensagem e outra, de 5 a 300.', campoNum('wl-int', 5, 300, e.intervalo, 'Segundos entre envios', 'salva_int')) +
                 fold('exemplos', 'Como a IA vê', exemplos(e));
         }],
         canais: ['Canais permitidos', () => {
             const e = state.escrita;
             return dica('canais', 'Cada canal é guardado pelo identificador: renomear o grupo não muda nada. Tirar da lista não pede confirmação.') +
-                (e.canais.length ? e.canais.map((c) => `<div class="wl-chan"><div class="wl-av">${esc(Array.from(c.nome)[0] || '?')}</div><div class="wl-txt"><div class="wl-t">${esc(c.nome)}</div><div class="wl-s">${pessoasTxt(c.jid, c.pessoas)}</div><div class="wl-id">${esc(c.jid)}</div></div><button class="wl-x" data-tirar="${esc(c.jid)}" aria-label="Tirar ${esc(c.nome)} da lista" title="Tirar da lista">${X}</button></div>`).join('')
+                (e.canais.length ? e.canais.map((c) => `<div class="wl-chan" data-canal="${esc(c.jid)}" tabindex="0" role="button"><div class="wl-av">${esc(Array.from(c.nome)[0] || '?')}</div><div class="wl-txt"><div class="wl-t">${esc(c.nome)} <span class="wl-s">· ${c.limite} por hora</span></div><div class="wl-s">${pessoasTxt(c.jid, c.pessoas)}</div>${uso(c)}</div><button class="wl-x" data-tirar="${esc(c.jid)}" aria-label="Tirar ${esc(c.nome)} da lista" title="Tirar da lista">${X}</button></div>`).join('')
                     : '<div class="wl-empty">Nenhum canal. A IA não escreve em lugar nenhum.</div>') +
                 '<div class="wl-actions"><button class="wl-big" data-act="addcanal">Adicionar canal</button></div>';
         }],
         addcanal: ['Adicionar canal', () =>
             `<input class="wl-field wl-busca" placeholder="Buscar conversa ou grupo" aria-label="Buscar conversa ou grupo" value="${esc(busca)}"><div class="wl-lista">${listaCanais()}</div>`],
-        limite: ['Limite por hora', () => {
-            const e = state.escrita;
-            return lbl('Mensagens por hora') +
-                `<input class="wl-field wl-lim" type="number" min="1" max="100" step="1" inputmode="numeric" aria-label="Mensagens por hora" value="${e.limite}">` +
-                `<div class="wl-s wl-no wl-limaviso" role="alert">${esc(limAviso)}</div>` +
-                lbl('De 1 a 100, somando todas as conexões. Enter ou sair do campo aplica.') +
-                lbl(`Nesta hora: ${e.usadas} de ${e.limite}${e.usadas >= e.limite && e.liberaEm ? ` · libera em ${e.liberaEm} min` : ''}`) +
-                `<div class="wl-meter"><i style="width:${Math.min(100, e.usadas / e.limite * 100)}%"></i></div>` +
-                dica('limite', 'Padrão: 10. Passou do limite, a IA recebe "limite atingido" e nada é enviado. Conta Business: números altos aumentam o risco de bloqueio. Subir pede confirmação; descer, não.');
+        canal: [() => { const c = canalAtual(); return c ? esc(c.nome) : ''; }, () => {
+            const c = canalAtual();
+            if (!c) return '';
+            return kv(`${pessoasTxt(c.jid, c.pessoas)} · <span class="wl-id">${esc(c.jid)}</span>`) +
+                row('Mensagens por hora neste canal', 'De 1 a 100. Padrão: 10.', campoNum('wl-limc', 1, 100, c.limite, 'Mensagens por hora', 'salva_lim')) +
+                `<div style="padding:0 6px">${uso(c)}</div>` +
+                dica('limcanal', 'Passou do limite, a IA recebe "limite deste canal atingido" e nada é enviado. Os outros canais seguem liberados. Conta Business: números altos aumentam o risco de bloqueio. Subir pede confirmação; descer, não.') +
+                `<div class="wl-actions"><button class="wl-btn wl-danger" data-tirar="${esc(c.jid)}">Tirar da lista</button></div>`;
         }],
         envios: ['Histórico de envios', () => {
             const l = state.escrita.envios;
@@ -533,7 +539,7 @@
             row('Pode abrir documentos', c.docs ? 'Abre PDF, Word, planilhas e textos quando você pedir. Zip, APK e programas nunca.'
                 : 'Desligado: a IA só vê nome, tipo e tamanho dos arquivos', sw('conn_docs', c.docs, 'Pode abrir documentos')) +
             group('Escrever') +
-            row('Pode escrever', c.escreve ? `Só texto em: ${e.canais.length ? e.canais.map((x) => esc(x.nome)).join(', ') : 'nenhum canal ainda'} · limite ${e.limite} por hora`
+            row('Pode escrever', c.escreve ? `Só texto em: ${e.canais.length ? e.canais.map((x) => `${esc(x.nome)} (${x.limite}/h)`).join(', ') : 'nenhum canal ainda'}`
                 : 'Desligado: esta conexão não envia nada', sw('conn_escreve', c.escreve, 'Pode escrever')) +
             (!e.ligado && c.escreve ? kv('<b>Escrever está desligado em geral.</b> Nada é enviado até você ligar em Conectores de IA › Escrever.') : '') +
             (c.escreve ? '<div class="wl-actions" style="padding-top:0"><button class="wl-btn" data-nav="escrever">Canais e limite</button></div>' : '') +
@@ -639,6 +645,7 @@
         if (!el || !current || !state) return;
         const c = conn();
         if (!c && ['det', 'pronta', 'renovada'].includes(current)) current = 'mcp'; // revogada: volta para a lista
+        if (current === 'canal' && !canalAtual()) current = 'canais'; // canal tirado da lista
         const [title, html] = VIEWS[current];
         el.querySelector('.wl-title').innerHTML = typeof title === 'function' ? title(c) : title;
         el.querySelector('.wl-body').innerHTML = html(c);
@@ -668,13 +675,15 @@
             el.addEventListener('click', onClick);
             el.addEventListener('input', onInput);
             el.addEventListener('change', (e) => {
-                if (e.target.classList.contains('wl-lim')) aplicarLimite(e.target);
                 if (e.target.classList.contains('wl-midia')) aplicarMidia(e.target);
             });
             el.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' && e.target.classList.contains('wl-novo')) return addRule();
                 if (e.key === 'Enter' && e.target.classList.contains('wl-nome')) return criar();
-                if (e.key === 'Enter' && e.target.classList.contains('wl-lim')) return aplicarLimite(e.target);
+                if (e.key === 'Enter' && e.target.classList.contains('wl-limc')) return salvaLimite();
+                if (e.key === 'Enter' && e.target.classList.contains('wl-int')) return salvaIntervalo();
+                const ch = e.target.closest('[data-canal]');
+                if (ch && e.target === ch && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); abreCanal(ch.dataset.canal); }
                 if (e.key === 'Enter' && e.target.classList.contains('wl-midia')) return aplicarMidia(e.target);
                 const opt = e.target.closest('[data-tipo]');
                 if (opt && e.target === opt && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); novoTipo = opt.dataset.tipo; render(); }
@@ -754,17 +763,31 @@
         if (r) toast({ baixar: 'Motor instalado', apagar: 'Motor apagado', limpar: 'Transcrições apagadas' }[acao]);
     }
 
-    // campo "Mensagens por hora": inteiro de 1 a 100. Inválido: aviso e nada muda. Subir pede a caixa (no Rust).
-    async function aplicarLimite(input) {
-        if (limOcupado) return;
+    function abreCanal(jid) { canalJid = jid; go('canal'); }
+
+    // campo do limite do canal: inteiro de 1 a 100 (Salvar ou Enter). Fora disso: aviso e o campo volta. Subir pede a caixa (no Rust); descer, não.
+    async function salvaLimite() {
+        const c = canalAtual(), input = viewEl().querySelector('.wl-limc');
+        if (!c || !input || escOcupado) return;
         const v = input.value.trim();
-        if (v === String(state.escrita.limite)) return;
-        limOcupado = true;
-        limAviso = '';
-        if (!/^[0-9]+$/.test(v) || +v < 1 || +v > 100) limAviso = 'Valor inválido: use um número inteiro de 1 a 100. Nada mudou.';
-        else if (await escrita('limite', { n: +v })) toast('Limite: ' + v + ' por hora');
-        else limAviso = escritaErro;
-        limOcupado = false;
+        if (!/^[0-9]+$/.test(v) || +v < 1 || +v > 100) { toast('Digite um número de 1 a 100'); return render(); }
+        if (+v === c.limite) return;
+        escOcupado = true;
+        if (await escrita('limite', { jid: c.jid, n: +v })) toast(c.nome + ': ' + v + ' por hora');
+        escOcupado = false;
+        render();
+    }
+
+    // campo do intervalo entre envios: inteiro de 5 a 300 segundos, para a conta toda. Sem caixa.
+    async function salvaIntervalo() {
+        const input = viewEl().querySelector('.wl-int');
+        if (!input || escOcupado) return;
+        const v = input.value.trim();
+        if (!/^[0-9]+$/.test(v) || +v < 5 || +v > 300) { toast('Digite um número de 5 a 300'); return render(); }
+        if (+v === state.escrita.intervalo) return;
+        escOcupado = true;
+        if (await escrita('intervalo', { n: +v })) toast('Intervalo: ' + v + ' s');
+        escOcupado = false;
         render();
     }
 
@@ -849,6 +872,8 @@
         if (choice) return pick(choice.dataset.pop);
         const opt = e.target.closest('[data-tipo]');
         if (opt) { novoTipo = opt.dataset.tipo; return render(); }
+        const ch = e.target.closest('[data-canal]');
+        if (ch && !e.target.closest('button')) return abreCanal(ch.dataset.canal);
         const t = e.target.closest('button');
         if (!t || t.disabled) return;
         if (t.classList.contains('wl-back') || t.dataset.act === 'voltar') return PARENT[current] ? open(PARENT[current]) : close();
@@ -863,7 +888,10 @@
         }
         if (t.dataset.fold) { abertas[t.dataset.fold] = !abertas[t.dataset.fold]; return render(); }
         // escrever: o que aumenta o poder passa pela caixa Sim/Não do app (a recusa volta como erro)
-        if (t.dataset.tirar) { if (await escrita('canal_tirar', { jid: t.dataset.tirar })) toast('Canal retirado da lista'); return; }
+        if (t.dataset.tirar) {
+            if (await escrita('canal_tirar', { jid: t.dataset.tirar })) { toast('Canal retirado da lista'); if (current === 'canais' || current === 'canal') go('canais'); }
+            return;
+        }
         if (t.dataset.addjid) {
             const x = candidatos().find((y) => y.jid === t.dataset.addjid);
             if (!x) return;
@@ -915,6 +943,8 @@
         }
         if (act === 'limpar') { await conexao('limpar'); render(); return toast('Histórico limpo'); }
         if (act === 'addcanal') { busca = ''; return go('addcanal'); }
+        if (act === 'salva_lim') return salvaLimite();
+        if (act === 'salva_int') return salvaIntervalo();
         if (act === 'desligar_tudo') { if (await escrita('desligar')) toast('Escrever desligado: nada mais é enviado'); return; }
         if (act === 'limpar_envios') { if (await escrita('limpar')) toast('Histórico de envios limpo'); return; }
         if (act === 'baixar_motor' || act === 'apagar_motor' || act === 'apagar_trans') return motor(act);

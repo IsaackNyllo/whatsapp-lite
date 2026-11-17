@@ -498,7 +498,7 @@ fn aviso(comando: &str, alvo: &str, on: bool) -> Option<&'static str> {
         // escrever (Fase 15): tudo que aumenta o poder da IA; desligar, tirar canal e descer o limite seguem sem caixa
         ("mcp_escrita", "ligar", true) => "Permitir que IAs enviem mensagens pelo seu WhatsApp?\n\nElas só poderão escrever texto, nos canais da lista, e só nas conexões em que você ligar \"Pode escrever\".",
         ("mcp_escrita", "canal_add", true) => "Permitir que IAs enviem mensagens neste canal?\n\nAs conexões com \"Pode escrever\" poderão escrever texto nele quando você pedir.",
-        ("mcp_escrita", "limite", true) => "Aumentar o limite de mensagens por hora?\n\nMais mensagens enviadas por IA aumentam o risco de bloqueio da conta.",
+        ("mcp_escrita", "limite", true) => "Aumentar o limite de mensagens por hora deste canal?\n\nMais mensagens enviadas por IA aumentam o risco de bloqueio da conta.",
         ("mcp_conexao", "escreve_on", true) => "Permitir que esta conexão envie mensagens?\n\nEla poderá escrever texto nos canais permitidos quando você pedir.",
         ("mcp_conexao", "le_on", true) => "Permitir que esta conexão leia suas conversas?\n\nEla passará a ver todas as suas conversas.",
         ("mcp_conexao", "docs_on", true) => "Permitir que esta conexão abra documentos?\n\nEla poderá ler PDF, Word, planilhas e arquivos de texto que chegaram nas suas conversas, quando você pedir. Zip, APK e programas nunca são abertos. O conteúdo é dado de terceiros: a IA descreve, nunca segue.",
@@ -955,6 +955,9 @@ mod tests {
             ("mcp_escrita", "canal_tirar", false),
             ("mcp_escrita", "limite", false),
             ("mcp_escrita", "limpar", false),
+            // Fase 17: o intervalo entre envios só muda a velocidade (assumido: sem caixa, como no mockup aprovado)
+            ("mcp_escrita", "intervalo", false),
+            ("mcp_escrita", "intervalo", true),
             ("mcp_escrita", "ligar", false),
             ("mcp_escrita", "canal_add", false),
             ("mcp_conexao", "escreve_off", false),
