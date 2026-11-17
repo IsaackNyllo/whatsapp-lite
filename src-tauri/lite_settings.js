@@ -1,7 +1,8 @@
 // Seção "WhatsApp Lite" na tela Configurações do WhatsApp (engrenagem) e as 3 subtelas dela.
 // Só mexe dentro de [data-testid="settings-drawer"]: se o WhatsApp mudar a tela e o ponto
-// de inserção sumir, a seção não aparece. As chaves do MCP nunca vêm para a página: a tela
-// recebe só a versão mascarada e o app copia o texto com a chave real (mcp_copiar).
+// de inserção sumir, aparece um botão reserva no canto (painel próprio, mesmas telas).
+// As chaves do MCP nunca vêm para a página: a tela recebe só a versão mascarada e o app
+// copia o texto com a chave real (mcp_copiar).
 (function () {
     'use strict';
     if (window.top !== window) return;
@@ -9,6 +10,9 @@
     const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args);
     const SEC = 'wl-lite-sec';
     const VIEW = 'wl-lite-view';
+    const HOST = 'wl-lite-host';  // reserva: painel próprio quando o ponto de inserção some
+    const FAB = 'wl-lite-fab';    // reserva: botão no canto que abre o painel
+    const ESPERA = 3000;          // Configurações aberta e sem ponto de inserção por esse tempo = reserva
     const PRESETS = ['#ffffff', '#25d366', '#53bdeb', '#ffd279', '#ff7a7a', '#c9a7ff'];
     const ADDR = 'http://127.0.0.1:47800/mcp';
     const TERMINAL = 'Comando para colar no terminal';
@@ -45,6 +49,16 @@
         #${SEC} .wl-s { font-size: 14px; line-height: 20px; color: ${MUTED}; }
         #${SEC} .wl-sep { padding: 10px 20px; }
         #${SEC} .wl-sep::before { content: ""; display: block; height: 1px; background: ${LINE}; }
+        #${HOST} { position: fixed; top: var(--wl-bar, 0px); left: 0; bottom: 0; width: min(420px, 100vw); z-index: 9000;
+            overflow-y: auto; background: var(--WDS-surface-default, #161717); color: ${FG}; box-shadow: 0 0 12px rgba(0,0,0,.4); }
+        #${HOST} > header { height: 64px; box-sizing: border-box; padding: 10px; display: flex; align-items: center; gap: 8px; font-size: 16px; }
+        #${HOST} > header button { width: 40px; height: 40px; border: 0; border-radius: 50%; padding: 0; background: none;
+            color: ${FG}; cursor: pointer; display: grid; place-items: center; }
+        #${HOST} > header button:hover { background: ${HOVER}; }
+        #${FAB} { position: fixed; right: 16px; bottom: 88px; z-index: 9001; padding: 6px 12px; border: 0; border-radius: 16px;
+            background: var(--WDS-surface-default, #161717); color: ${MUTED}; font: inherit; font-size: 13px; cursor: pointer;
+            box-shadow: 0 1px 4px rgba(0,0,0,.4); opacity: .85; }
+        #${FAB}:hover, #${FAB}:focus-visible { opacity: 1; color: ${FG}; }
 
         #${VIEW} { --wl-card: #f7f8f8; --wl-info: #eaf3f0; --wl-code: #eef0f1; --wl-fg2: #3b4a54; --wl-line2: #c8ccce;
             --wl-warn: #b8860b; --wl-warnbg: #fdf0cf; --wl-warntx: #7a5a00; --wl-iabg: #dbe8ff; --wl-iatx: #1f4f9a;
@@ -665,7 +679,7 @@
     }
 
     async function open(name) {
-        const drawer = document.querySelector('[data-testid="settings-drawer"]');
+        const drawer = document.getElementById(HOST) || document.querySelector('[data-testid="settings-drawer"]');
         if (!drawer) return;
         let el = viewEl();
         if (!el) {
@@ -1011,23 +1025,74 @@
             const item = e.target.closest('[data-go]');
             if (item) open(item.dataset.go);
         });
+        // a seção fica dentro do listbox do WhatsApp, que engole Enter e Espaço: trata aqui, antes dele
+        sec.addEventListener('keydown', (e) => {
+            const item = (e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-go]');
+            if (!item) return;
+            e.preventDefault();
+            e.stopPropagation();
+            open(item.dataset.go);
+        });
         return sec;
     }
 
-    // logo abaixo do perfil: antes do primeiro item do WhatsApp (botões role=listitem com data-testid)
+    function addStyle() {
+        if (document.getElementById(SEC + '-style')) return;
+        const style = document.createElement('style');
+        style.id = SEC + '-style';
+        style.textContent = CSS;
+        document.head.appendChild(style);
+    }
+
+    // logo abaixo do perfil: antes do primeiro item do WhatsApp. Os itens são botões com data-testid
+    // (role=listitem até 17/11/2026, depois role=option num listbox); o perfil não tem data-testid.
     function inject() {
         injectTimer = 0;
         if (document.getElementById(SEC)) return;
         const drawer = document.querySelector('[data-testid="settings-drawer"]');
-        const first = drawer && drawer.querySelector('button[role="listitem"][data-testid]');
-        if (!first || !first.parentElement) { current = null; return; }
-        if (!document.getElementById(SEC + '-style')) {
-            const style = document.createElement('style');
-            style.id = SEC + '-style';
-            style.textContent = CSS;
-            document.head.appendChild(style);
-        }
+        const first = drawer && drawer.querySelector('button[data-testid]');
+        if (!first || !first.parentElement) return semAncora();
+        semDesde = 0;
+        const fab = document.getElementById(FAB);
+        if (fab) fab.remove();
+        addStyle();
         first.before(section());
+    }
+
+    // Configurações aberta (painel ou botão da barra marcado) e sem ponto de inserção por ESPERA ms:
+    // o WhatsApp mudou a tela. Mostra o botão reserva (abre as mesmas telas num painel próprio) e avisa uma vez.
+    let semDesde = 0, esperaTimer = 0, avisou = false;
+    function semAncora() {
+        if (!document.getElementById(HOST)) current = null;
+        const aberta = document.querySelector('[data-testid="settings-drawer"], button[data-navbar-item][aria-pressed="true"][aria-label="Configurações"]');
+        if (!aberta) { semDesde = 0; return; }
+        if (!semDesde) semDesde = Date.now();
+        if (Date.now() - semDesde < ESPERA) {
+            if (!esperaTimer) esperaTimer = setTimeout(() => { esperaTimer = 0; schedule(); }, ESPERA);
+            return;
+        }
+        if (document.getElementById(FAB)) return;
+        addStyle();
+        const b = document.createElement('button');
+        b.id = FAB;
+        b.textContent = 'WhatsApp Lite';
+        b.title = 'Telas do WhatsApp Lite';
+        b.addEventListener('click', alternaHost);
+        document.body.appendChild(b);
+        if (!avisou && window.__wlPopup) {
+            avisou = true;
+            window.__wlPopup.notice({ title: 'O WhatsApp mudou', text: 'Algumas partes do app podem não funcionar' }, undefined, true);
+        }
+    }
+    function alternaHost() {
+        let h = document.getElementById(HOST);
+        if (h) { h.remove(); current = null; return; }
+        h = document.createElement('div');
+        h.id = HOST;
+        h.innerHTML = `<header><button aria-label="Fechar" title="Fechar">${BACK}</button><div>WhatsApp Lite</div></header>`;
+        h.querySelector('button').addEventListener('click', alternaHost);
+        h.appendChild(section());
+        document.body.appendChild(h);
     }
 
     let injectTimer = 0;
