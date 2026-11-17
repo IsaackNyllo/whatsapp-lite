@@ -104,6 +104,10 @@ fn agora() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
+fn sal_valido(s: &str) -> bool {
+    s.len() == 32 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 /// "wlk_9f3a••••••••": a chave antiga (sem prefixo) mostra só 4 caracteres.
 fn mascara(chave: &str) -> String {
     let n = if chave.starts_with("wlk_") { 8 } else { 4 };
@@ -159,6 +163,26 @@ impl Conexoes {
 
     fn salvar(&self, lista: &[Conexao]) -> bool {
         gravar(&self.arquivo, &lista)
+    }
+
+    /// Sal das chaves opacas da página (Fase 18), em `mcp-sal.txt` ao lado das conexões: as chaves não mudam
+    /// se o WhatsApp limpar o localStorage (sair da conta).
+    fn sal_arquivo(&self) -> Option<PathBuf> {
+        self.arquivo.as_ref().and_then(|a| a.parent()).map(|d| d.join("mcp-sal.txt"))
+    }
+
+    pub fn sal(&self) -> Option<String> {
+        fs::read_to_string(self.sal_arquivo()?).ok().map(|s| s.trim().to_string()).filter(|s| sal_valido(s))
+    }
+
+    /// Grava só se ainda não há sal: a primeira página traz o que já usava (as chaves de antes continuam iguais).
+    pub fn guardar_sal(&self, s: &str) -> bool {
+        let Some(a) = self.sal_arquivo() else { return false };
+        if !sal_valido(s) || self.sal().is_some() {
+            return false;
+        }
+        let tmp = a.with_extension("tmp");
+        a.parent().map_or(Ok(()), fs::create_dir_all).and_then(|_| fs::write(&tmp, s)).and_then(|_| fs::rename(&tmp, &a)).is_ok()
     }
 
     /// Conexão ativa dona da chave, com as permissões. Compara com todas, sem parar na primeira.
@@ -944,10 +968,15 @@ fn pagina(app: &AppHandle, conexao: u64, tool: &str, args: &Value) -> Result<Str
         "fotos": settings.midia_fotos.load(Ordering::Relaxed),
         "anim": settings.midia_anim.load(Ordering::Relaxed),
         "docs": conexoes.pode(conexao, "docs") == Some(true),
+        "sal": conexoes.sal(),
     });
     crate::eval_in(app, "main", format!("window.__wlMcp && window.__wlMcp({id}, {nome}, {args}, {notify}, {filtro}, {quem}, {tipo}, {opc})"));
     let answer = rx.recv_timeout(TOOL_TIMEOUT).unwrap_or_else(|_| Err("WhatsApp não respondeu a tempo".into()));
     bridge.pending.lock().unwrap().remove(&id);
+    // sem sal no app, a página manda o que já usava (localStorage) e ele passa a valer daqui
+    if let Some(s) = answer.as_ref().ok().and_then(|(_, uso)| uso.as_ref()).and_then(|u| u["sal"].as_str()) {
+        conexoes.guardar_sal(s);
+    }
     conexoes.registrar(conexao, tool, answer.as_ref().ok().and_then(|(_, uso)| uso.as_ref()));
     answer.map(|(text, _)| text)
 }
@@ -1212,6 +1241,22 @@ mod tests {
 
     fn chave(c: &Conexoes, id: u64) -> String {
         c.lista.lock().unwrap().iter().find(|x| x.id == id).unwrap().chave.clone()
+    }
+
+    #[test]
+    fn sal_das_chaves_fica_no_app() {
+        let dir = pasta_temp("sal-das-chaves");
+        let (c, _) = Conexoes::load(Some(dir.clone()), None);
+        assert_eq!(c.sal(), None);
+        assert!(!c.guardar_sal("curto") && !c.guardar_sal(&"z".repeat(32)));
+        let s = "0123456789abcdef0123456789abcdef";
+        assert!(c.guardar_sal(s));
+        assert_eq!(c.sal().as_deref(), Some(s));
+        // o primeiro vale: outro sal depois não troca (as chaves não mudam)
+        assert!(!c.guardar_sal("ffffffffffffffffffffffffffffffff"));
+        assert_eq!(c.sal().as_deref(), Some(s));
+        assert_eq!(fs::read_to_string(dir.join("mcp-sal.txt")).unwrap(), s);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     fn pasta_temp(nome: &str) -> PathBuf {

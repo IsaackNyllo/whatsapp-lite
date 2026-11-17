@@ -31,9 +31,9 @@
     return Math.floor(d.getTime() / 1000) + (fim ? 86400 : 0); // fim = início do dia seguinte (exclusivo)
   }
 
-  // Chave opaca (Fase 18): identifica conversa e pessoa sem expor o id (número). Hash do id com um sal desta instalação,
-  // guardado no localStorage da página: estável entre aberturas. ponytail: se o WhatsApp limpar o localStorage (sair da
-  // conta), as chaves mudam e quem guardou chaves (a Memória) perde a ligação; aí guardar o sal no app.
+  // Chave opaca (Fase 18): identifica conversa e pessoa sem expor o id (número). Hash do id com um sal desta instalação.
+  // O sal mora no app (mcp-sal.txt, vem em opc.sal a cada chamada): sobrevive a sair da conta. Sem sal no app, vale o do
+  // localStorage (o de antes) ou um novo, e a resposta o manda ao app, que grava (uso.sal).
   let sal = null;
   function salDe() {
     if (sal) return sal;
@@ -976,10 +976,12 @@
     avisar = notify !== false;
     if (filtro) cfg = filtro;
     const ctx = { quem, tipo, opc };
+    if (opc && opc.sal) sal = opc.sal; // o do app vale
     const inv = (p) => { try { return window.__TAURI_INTERNALS__.invoke('mcp_result', p); } catch (e) {} };
     try {
       const r = await window.__wlMcpRun(tool, args, ctx);
-      await inv({ id, result: JSON.stringify(r), uso: ctx.uso || null });
+      const uso = opc && opc.sal ? ctx.uso || null : { conversa: null, n: 0, ...ctx.uso, sal: salDe() };
+      await inv({ id, result: JSON.stringify(r), uso });
     } catch (e) {
       await inv({ id, error: String((e && e.message) || e) });
     }
