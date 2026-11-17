@@ -251,7 +251,8 @@
         #${VIEW} .wl-killbar .wl-t { font-weight: 600; }
         #${VIEW} .wl-chan { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid ${LINE}; }
         #${VIEW} .wl-av { flex: none; width: 38px; height: 38px; border-radius: 50%; background: var(--wl-tile); display: grid;
-            place-items: center; font-weight: 600; }
+            place-items: center; font-weight: 600; overflow: hidden; }
+        #${VIEW} .wl-av img { width: 100%; height: 100%; object-fit: cover; }
         #${VIEW} .wl-id { color: ${MUTED}; font: 12px Consolas, "Cascadia Mono", monospace; overflow-wrap: anywhere; }
         #${VIEW} .wl-field.wl-num { display: inline-block; width: 84px; margin: 0; padding: 8px 6px; text-align: center; }
         #${VIEW} .wl-salva { display: flex; gap: 8px; align-items: center; flex: none; }
@@ -404,9 +405,31 @@
             return ps ? ps.getModelsArray().filter((p) => !eu(p.id)).length : null;
         } catch (e) { return null; }
     }
+    // círculo do canal: a inicial já, a foto do WhatsApp depois (fotos(); sem foto ou erro, a inicial fica)
+    const avatar = (jid, nome) => `<div class="wl-av" data-foto="${esc(jid)}">${esc(Array.from(nome)[0] || '?')}</div>`;
+    async function fotos(raiz) {
+        const P = (() => { try { return require('WAWebCollections').ProfilePicThumb; } catch (e) { return null; } })();
+        if (!P) return;
+        for (const av of raiz.querySelectorAll('[data-foto]')) {
+            if (!av.isConnected) return; // a tela mudou no meio: para
+            try {
+                let t = P.get(av.dataset.foto);
+                let src = t && (t.img || t.eurl || t.previewEurl);
+                if (!src) { // ponytail: um por vez, 4 s cada; sem fila nem cache próprio (o WhatsApp já guarda)
+                    t = await Promise.race([P.find(av.dataset.foto), new Promise((r) => setTimeout(r, 4000))]);
+                    src = t && (t.img || t.eurl || t.previewEurl);
+                }
+                if (!src || !av.isConnected) continue;
+                const im = new Image();
+                im.alt = '';
+                im.onload = () => { if (av.isConnected) av.replaceChildren(im); };
+                im.src = src;
+            } catch (e) { /* fica a inicial */ }
+        }
+    }
     const listaCanais = () => {
         const l = candidatos();
-        return l.length ? l.map((x) => `<div class="wl-chan"><div class="wl-av">${esc(Array.from(x.nome)[0] || '?')}</div><div class="wl-txt"><div class="wl-t">${esc(x.nome)}</div><div class="wl-s">${pessoasTxt(x.jid, pessoasDe(x.c))}</div></div><button class="wl-btn" data-addjid="${esc(x.jid)}">Adicionar</button></div>`).join('')
+        return l.length ? l.map((x) => `<div class="wl-chan">${avatar(x.jid, x.nome)}<div class="wl-txt"><div class="wl-t">${esc(x.nome)}</div><div class="wl-s">${pessoasTxt(x.jid, pessoasDe(x.c))}</div></div><button class="wl-btn" data-addjid="${esc(x.jid)}">Adicionar</button></div>`).join('')
             : '<div class="wl-empty">Nenhuma conversa encontrada.</div>';
     };
     // barra de uso da hora de um canal (vermelha com "Limite atingido")
@@ -510,7 +533,7 @@
         canais: ['Canais permitidos', () => {
             const e = state.escrita;
             return dica('canais', 'Cada canal é guardado pelo identificador: renomear o grupo não muda nada. Tirar da lista não pede confirmação.') +
-                (e.canais.length ? e.canais.map((c) => `<div class="wl-chan" data-canal="${esc(c.jid)}" tabindex="0" role="button"><div class="wl-av">${esc(Array.from(c.nome)[0] || '?')}</div><div class="wl-txt"><div class="wl-t">${esc(c.nome)} <span class="wl-s">· ${c.limite} por hora</span></div><div class="wl-s">${pessoasTxt(c.jid, c.pessoas)}</div>${uso(c)}</div><button class="wl-x" data-tirar="${esc(c.jid)}" aria-label="Tirar ${esc(c.nome)} da lista" title="Tirar da lista">${X}</button></div>`).join('')
+                (e.canais.length ? e.canais.map((c) => `<div class="wl-chan" data-canal="${esc(c.jid)}" tabindex="0" role="button">${avatar(c.jid, c.nome)}<div class="wl-txt"><div class="wl-t">${esc(c.nome)} <span class="wl-s">· ${c.limite} por hora</span></div><div class="wl-s">${pessoasTxt(c.jid, c.pessoas)}</div>${uso(c)}</div><button class="wl-x" data-tirar="${esc(c.jid)}" aria-label="Tirar ${esc(c.nome)} da lista" title="Tirar da lista">${X}</button></div>`).join('')
                     : '<div class="wl-empty">Nenhum canal. A IA não escreve em lugar nenhum.</div>') +
                 '<div class="wl-actions"><button class="wl-big" data-act="addcanal">Adicionar canal</button></div>';
         }],
@@ -663,6 +686,7 @@
         const [title, html] = VIEWS[current];
         el.querySelector('.wl-title').innerHTML = typeof title === 'function' ? title(c) : title;
         el.querySelector('.wl-body').innerHTML = html(c);
+        fotos(el);
         // exemplos do aviso: os mesmos cartões que aparecem de verdade (message_popup.js)
         el.querySelectorAll('[data-ex]').forEach((ex) =>
             window.__wlPopup.fill(ex, ex.dataset.ex, 'Mãe', 'Oi, meu filho, já chegou em casa?', null, true));
@@ -996,7 +1020,7 @@
     function onInput(e) {
         const t = e.target;
         if (t.classList.contains('wl-nome')) novoNome = t.value;
-        else if (t.classList.contains('wl-busca')) { busca = t.value; viewEl().querySelector('.wl-lista').innerHTML = listaCanais(); }
+        else if (t.classList.contains('wl-busca')) { busca = t.value; const l = viewEl().querySelector('.wl-lista'); l.innerHTML = listaCanais(); fotos(l); }
         else if (t.classList.contains('wl-frase')) {
             const out = t.nextElementSibling;
             const v = t.value.trim();
