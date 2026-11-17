@@ -16,6 +16,8 @@ const COMMANDS: &[&str] = &[
     "lite_popup_style",
     "lite_notice_pos",
     "lite_dicas",
+    "lite_midia",
+    "doc_pdf",
     "mcp_result",
     "mcp_conexao",
     "mcp_copiar",

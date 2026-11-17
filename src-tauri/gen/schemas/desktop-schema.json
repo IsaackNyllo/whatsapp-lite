@@ -249,6 +249,12 @@
           "markdownDescription": "Enables the bubble_unread command without any pre-configured scope."
         },
         {
+          "description": "Enables the doc_pdf command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-doc-pdf",
+          "markdownDescription": "Enables the doc_pdf command without any pre-configured scope."
+        },
+        {
           "description": "Enables the filtro_acao command without any pre-configured scope.",
           "type": "string",
           "const": "allow-filtro-acao",
@@ -295,6 +301,12 @@
           "type": "string",
           "const": "allow-lite-get",
           "markdownDescription": "Enables the lite_get command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the lite_midia command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-lite-midia",
+          "markdownDescription": "Enables the lite_midia command without any pre-configured scope."
         },
         {
           "description": "Enables the lite_notice_pos command without any pre-configured scope.",
@@ -411,6 +423,12 @@
           "markdownDescription": "Denies the bubble_unread command without any pre-configured scope."
         },
         {
+          "description": "Denies the doc_pdf command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-doc-pdf",
+          "markdownDescription": "Denies the doc_pdf command without any pre-configured scope."
+        },
+        {
           "description": "Denies the filtro_acao command without any pre-configured scope.",
           "type": "string",
           "const": "deny-filtro-acao",
@@ -457,6 +475,12 @@
           "type": "string",
           "const": "deny-lite-get",
           "markdownDescription": "Denies the lite_get command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the lite_midia command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-lite-midia",
+          "markdownDescription": "Denies the lite_midia command without any pre-configured scope."
         },
         {
           "description": "Denies the lite_notice_pos command without any pre-configured scope.",

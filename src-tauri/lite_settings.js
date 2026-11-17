@@ -273,6 +273,7 @@
         gauge: svg('<path d="M4 16a8 8 0 1 1 16 0M12 16l4-5"/>'),
         clock: svg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>'),
         mic: svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
+        img: svg('<rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M20 16l-5-5-8 8"/>'),
     };
     const FOLD = '<svg class="wl-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>';
     const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg>';
@@ -295,9 +296,11 @@
     let teste = null;     // último "Testar conexão" do Ollama
     // subtela -> tela de onde veio (o Voltar volta para ela)
     const PARENT = { retidas: 'mcp', regras: 'mcp', ia: 'mcp', nova: 'mcp', pronta: 'mcp', det: 'mcp', renovada: 'det', todas: 'mcp',
-        escrever: 'mcp', canais: 'escrever', addcanal: 'canais', limite: 'escrever', envios: 'escrever', audio: 'mcp' };
+        escrever: 'mcp', canais: 'escrever', addcanal: 'canais', limite: 'escrever', envios: 'escrever', audio: 'mcp', midia: 'mcp' };
     let limAviso = '';    // aviso do campo Limite por hora (valor recusado)
     let limOcupado = false;
+    let midiaOcupado = false;
+    let midiaAviso = '';  // aviso dos campos de "Imagens no resumo" (valor recusado)
     let busca = '';       // busca em "Adicionar canal"
     const abertas = {};   // seções recolhidas abertas ("Como a IA vê")
     let current = null;   // subtela aberta
@@ -342,7 +345,7 @@
     const quandoT = (t) => quando(hm(new Date(t * 1000)));
     const dataCurta = (t) => { const d = new Date(t * 1000); return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1); };
     const num = (n) => Number(n || 0).toLocaleString('pt-BR');
-    const UNID = { ler_mensagens: ['mensagem', 'mensagens'], ver_imagens: ['imagem', 'imagens'], listar_conversas: ['conversa', 'conversas'] };
+    const UNID = { ler_mensagens: ['mensagem', 'mensagens'], ver_imagens: ['imagem', 'imagens'], listar_conversas: ['conversa', 'conversas'], ver_documento: ['documento', 'documentos'] };
     const qtd = (h) => num(h.n) + ' ' + (UNID[h.ferramenta] || ['', ''])[h.n === 1 ? 0 : 1];
     const conn = () => (state.conexoes || []).find((c) => c.id === cur);
     const tile = (tipo) => tipo === 'outro' ? `<div class="wl-app wl-gen">${PLUG}</div>`
@@ -456,6 +459,8 @@
                 nav('mic', 'Transcrever áudios', !state.audio.ligado ? 'Desligado: a IA vê só [áudio 0:42]'
                     : !state.audio.motor ? 'Ligado, mas falta baixar o motor' : `Ligado · ${num(state.audio.transcritos)} com texto`, 'audio',
                     `<span class="wl-state${state.audio.ligado ? '' : ' off'}">${state.audio.ligado ? 'Ligado' : 'Desligado'}</span>`) +
+                group('Imagens <span class="wl-new">novo</span>') +
+                nav('img', 'Imagens no resumo', `Até ${state.midia_fotos} fotos e ${state.midia_anim} GIFs/figurinhas por resumo`, 'midia') +
                 group('Segurança') +
                 row('Avisar quando uma IA ler', 'Mostra qual conexão leu, qual conversa e quantas mensagens', sw('mcp_notify', state.mcp_notify, 'Avisar quando uma IA ler')) +
                 row('Mostrar também na janela', 'Com a bolinha ativa, só ela avisa', sw('notice_win', state.notice_win, 'Mostrar também na janela')) +
@@ -525,6 +530,8 @@
             row('Pode ler', c.le ? 'Vê todas as conversas. Só leitura; nada é marcado como lido.'
                 : 'Desligado: esta conexão não vê nenhuma conversa. Só recebe os nomes dos canais permitidos, para escolher onde escrever.', sw('conn_le', c.le, 'Pode ler')) +
             (!state.mcp_enabled && c.le ? kv('<b>A leitura está desligada em geral.</b> Nada é lido até você ligar em Conectores de IA, no topo.') : '') +
+            row('Pode abrir documentos', c.docs ? 'Abre PDF, Word, planilhas e textos quando você pedir. Zip, APK e programas nunca.'
+                : 'Desligado: a IA só vê nome, tipo e tamanho dos arquivos', sw('conn_docs', c.docs, 'Pode abrir documentos')) +
             group('Escrever') +
             row('Pode escrever', c.escreve ? `Só texto em: ${e.canais.length ? e.canais.map((x) => esc(x.nome)).join(', ') : 'nenhum canal ainda'} · limite ${e.limite} por hora`
                 : 'Desligado: esta conexão não envia nada', sw('conn_escreve', c.escreve, 'Pode escrever')) +
@@ -532,7 +539,7 @@
             (c.escreve ? '<div class="wl-actions" style="padding-top:0"><button class="wl-btn" data-nav="escrever">Canais e limite</button></div>' : '') +
             group('Conectar') + conectar(c) +
             group('Consumo') +
-            `<div class="wl-stats">${stat(c.chamadas, 'chamadas')}${c.le ? stat(c.mensagens, 'mensagens lidas') + stat(c.imagens, 'imagens vistas') + stat(c.audios, 'áudios transcritos') : ''}${c.escreve || c.enviadas ? stat(c.enviadas, 'mensagens enviadas') : ''}</div>` +
+            `<div class="wl-stats">${stat(c.chamadas, 'chamadas')}${c.le ? stat(c.mensagens, 'mensagens lidas') + stat(c.imagens, 'imagens vistas') + stat(c.audios, 'áudios transcritos') : ''}${c.docs || c.documentos ? stat(c.documentos, 'documentos abertos') : ''}${c.escreve || c.enviadas ? stat(c.enviadas, 'mensagens enviadas') : ''}</div>` +
             (c.le ? `<div class="wl-kv"><span>Última leitura: <b>${c.ultima ? quandoT(c.ultima) : 'nunca'}</b></span></div>` : '') +
             (c.le || c.historico.length ? group('Últimas leituras <span class="wl-mut">· só hora, conversa e quantidade, nunca o texto</span>') +
             (c.historico.length
@@ -606,6 +613,14 @@
                 `<div class="wl-stats"><div class="wl-stat"><b>${num(a.transcritos)}</b><span>áudios com texto</span></div><div class="wl-stat"><b>${num(a.guardados - a.transcritos)}</b><span>sem fala, expirados ou longos</span></div></div>` +
                 row('Apagar transcrições', 'Só os textos guardados neste PC', `<button class="wl-btn wl-danger" data-act="apagar_trans"${a.guardados ? '' : ' disabled'}>Apagar</button>`);
         }],
+        midia: ['Imagens no resumo', () =>
+            lbl('Fotos por resumo') +
+            `<input class="wl-field wl-midia" data-q="fotos" type="number" min="0" max="200" step="1" inputmode="numeric" aria-label="Fotos por resumo" value="${state.midia_fotos}">` +
+            lbl('GIFs e figurinhas por resumo') +
+            `<input class="wl-field wl-midia" data-q="anim" type="number" min="0" max="200" step="1" inputmode="numeric" aria-label="GIFs e figurinhas por resumo" value="${state.midia_anim}">` +
+            `<div class="wl-s wl-no wl-limaviso" role="alert">${esc(midiaAviso)}</div>` +
+            lbl('De 0 a 200 cada. 0 = a IA não abre. Enter ou sair do campo aplica.') +
+            dica('midia', 'No resumo, a IA abre sozinha as imagens que importam, até estes números. Figurinha e GIF não gastam o teto das fotos. Mais imagens dão mais contexto e custam mais para a IA.')],
         aplicativo: ['Aplicativo', () =>
             row('Iniciar com o Windows', 'Abre escondido na bandeja quando o computador liga', sw('autostart', state.autostart, 'Iniciar com o Windows')) +
             row('Rodar em segundo plano', 'Fechar a janela deixa o app na bandeja', sw('run_in_background', state.run_in_background, 'Rodar em segundo plano')) +
@@ -652,11 +667,15 @@
             el.innerHTML = `<header><button class="wl-back" aria-label="Voltar" title="Voltar">${BACK}</button><div class="wl-title"></div></header><div class="wl-body"></div>`;
             el.addEventListener('click', onClick);
             el.addEventListener('input', onInput);
-            el.addEventListener('change', (e) => { if (e.target.classList.contains('wl-lim')) aplicarLimite(e.target); });
+            el.addEventListener('change', (e) => {
+                if (e.target.classList.contains('wl-lim')) aplicarLimite(e.target);
+                if (e.target.classList.contains('wl-midia')) aplicarMidia(e.target);
+            });
             el.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' && e.target.classList.contains('wl-novo')) return addRule();
                 if (e.key === 'Enter' && e.target.classList.contains('wl-nome')) return criar();
                 if (e.key === 'Enter' && e.target.classList.contains('wl-lim')) return aplicarLimite(e.target);
+                if (e.key === 'Enter' && e.target.classList.contains('wl-midia')) return aplicarMidia(e.target);
                 const opt = e.target.closest('[data-tipo]');
                 if (opt && e.target === opt && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); novoTipo = opt.dataset.tipo; render(); }
                 const choice = e.target.closest('[data-pop]');
@@ -746,6 +765,21 @@
         else if (await escrita('limite', { n: +v })) toast('Limite: ' + v + ' por hora');
         else limAviso = escritaErro;
         limOcupado = false;
+        render();
+    }
+
+    // "Imagens no resumo": inteiro de 0 a 200 em cada campo. Inválido: aviso e nada muda. Sem caixa (é custo, não poder).
+    async function aplicarMidia(input) {
+        const q = input.dataset.q, v = input.value.trim(), atual = state['midia_' + q];
+        if (v === String(atual) || midiaOcupado) return;
+        midiaOcupado = true;
+        midiaAviso = '';
+        if (!/^[0-9]+$/.test(v) || +v > 200) midiaAviso = 'Valor inválido: use um número inteiro de 0 a 200. Nada mudou.';
+        else {
+            const r = await invoke('lite_midia', { qual: q, n: +v }).catch((e) => { midiaAviso = String(e); return null; });
+            if (r) { state = r; toast((q === 'fotos' ? 'Fotos' : 'GIFs e figurinhas') + ': até ' + v + ' por resumo'); }
+        }
+        midiaOcupado = false;
         render();
     }
 
@@ -893,12 +927,13 @@
             render();
             return toast(!ok ? 'Não deu para mudar a conexão.' : on ? 'Conexão reativada' : 'Conexão pausada');
         }
-        if (k === 'conn_le' || k === 'conn_escreve') {
-            const qual = k === 'conn_le' ? 'le' : 'escreve';
+        if (k === 'conn_le' || k === 'conn_escreve' || k === 'conn_docs') {
+            const qual = k.slice(5);
             const ok = await conexao(qual + (on ? '_on' : '_off'));
             render();
             return toast(!ok ? falha || 'Não deu para mudar a conexão.'
                 : qual === 'le' ? (on ? 'Conexão pode ler' : 'Esta conexão não lê mais')
+                : qual === 'docs' ? (on ? 'Conexão pode abrir documentos' : 'Esta conexão não abre mais documentos')
                 : (on ? 'Conexão pode escrever' : 'Esta conexão não escreve mais'));
         }
         if (k === 'escrita_on') { if (await escrita('ligar')) toast('Escrever ligado'); return; }

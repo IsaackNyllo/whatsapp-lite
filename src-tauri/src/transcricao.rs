@@ -239,7 +239,7 @@ fn sha256(arquivo: &Path) -> Option<String> {
 }
 
 /// Base64 padrão (o WAV vem assim da página). None se tiver caractere fora do alfabeto.
-fn de_base64(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn de_base64(s: &str) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(s.len() / 4 * 3);
     let (mut acc, mut bits) = (0u32, 0u32);
     for &c in s.as_bytes() {

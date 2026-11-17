@@ -26,7 +26,7 @@ tauri-plugin-single-instance = "~2.3.6"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38"
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_WinRT", "Data_Pdf", "Foundation", "Graphics_Imaging", "Storage_Streams"] }
 
 [features]
 default = ["custom-protocol"]

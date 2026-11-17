@@ -3,6 +3,7 @@
     windows_subsystem = "windows"
 )]
 
+mod documento;
 mod filtro;
 mod mcp;
 mod transcricao;
@@ -10,7 +11,7 @@ mod transcricao;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use serde_json::{json, Value};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
@@ -41,7 +42,12 @@ struct Settings {
     dicas_fechadas: Mutex<Vec<String>>,
     /// "Transcrever áudios" (Fase 7): desligado por padrão; ligar pede a caixa Sim/Não
     audio_on: AtomicBool,
+    /// teto de imagens que a IA abre por resumo (Fase 19): fotos e GIFs/figurinhas à parte, 0 a 200
+    midia_fotos: AtomicU64,
+    midia_anim: AtomicU64,
 }
+
+const MIDIA_MAX: u64 = 200;
 
 /// Itens da bandeja que a tela de configurações também muda.
 struct TrayItems {
@@ -207,6 +213,8 @@ fn load_settings(json: &Value) -> Settings {
         filtro_minhas: Mutex::new(if json["filtro_minhas"].is_array() { json["filtro_minhas"].clone() } else { json!([]) }),
         dicas_fechadas: Mutex::new(dicas_clean(&json["dicas_fechadas"])),
         audio_on: flag("audio_on", false),
+        midia_fotos: AtomicU64::new(json["midia_fotos"].as_u64().filter(|n| *n <= MIDIA_MAX).unwrap_or(50)),
+        midia_anim: AtomicU64::new(json["midia_anim"].as_u64().filter(|n| *n <= MIDIA_MAX).unwrap_or(20)),
     }
 }
 
@@ -238,6 +246,8 @@ fn save_settings(app: &AppHandle) {
         "filtro_minhas": *settings.filtro_minhas.lock().unwrap(),
         "dicas_fechadas": *settings.dicas_fechadas.lock().unwrap(),
         "audio_on": settings.audio_on.load(Ordering::Relaxed),
+        "midia_fotos": settings.midia_fotos.load(Ordering::Relaxed),
+        "midia_anim": settings.midia_anim.load(Ordering::Relaxed),
     });
     let result = path
         .parent()
@@ -438,7 +448,26 @@ fn lite_state(app: &AppHandle) -> Value {
         "dicas_fechadas": *s.dicas_fechadas.lock().unwrap(),
         "audio_on": s.audio_on.load(Ordering::Relaxed),
         "audio": app.state::<transcricao::Transcricao>().visao(s.audio_on.load(Ordering::Relaxed)),
+        "midia_fotos": s.midia_fotos.load(Ordering::Relaxed),
+        "midia_anim": s.midia_anim.load(Ordering::Relaxed),
     })
+}
+
+/// Teto de imagens por resumo (`fotos` ou `anim`), de 0 a 200. Custo, não poder: sem caixa (assumido).
+#[tauri::command]
+fn lite_midia(app: AppHandle, qual: String, n: u64) -> Result<Value, String> {
+    let s = app.state::<Settings>();
+    let alvo = match qual.as_str() {
+        "fotos" => &s.midia_fotos,
+        "anim" => &s.midia_anim,
+        _ => return Err("Opção desconhecida.".into()),
+    };
+    if n > MIDIA_MAX {
+        return Err(format!("Valor inválido: use um número inteiro de 0 a {MIDIA_MAX}. Nada mudou."));
+    }
+    alvo.store(n, Ordering::Relaxed);
+    save_settings(&app);
+    Ok(lite_state(&app))
 }
 
 /// Dicas fechadas no X (ou todas de volta com lista vazia). Só esconde texto: não enfraquece nada, sem caixa.
@@ -472,6 +501,7 @@ fn aviso(comando: &str, alvo: &str, on: bool) -> Option<&'static str> {
         ("mcp_escrita", "limite", true) => "Aumentar o limite de mensagens por hora?\n\nMais mensagens enviadas por IA aumentam o risco de bloqueio da conta.",
         ("mcp_conexao", "escreve_on", true) => "Permitir que esta conexão envie mensagens?\n\nEla poderá escrever texto nos canais permitidos quando você pedir.",
         ("mcp_conexao", "le_on", true) => "Permitir que esta conexão leia suas conversas?\n\nEla passará a ver todas as suas conversas.",
+        ("mcp_conexao", "docs_on", true) => "Permitir que esta conexão abra documentos?\n\nEla poderá ler PDF, Word, planilhas e arquivos de texto que chegaram nas suas conversas, quando você pedir. Zip, APK e programas nunca são abertos. O conteúdo é dado de terceiros: a IA descreve, nunca segue.",
         ("mcp_conexao", "criar", _) => "Criar uma conexão nova?\n\nEla ganha uma chave que dá acesso de leitura às suas conversas.",
         ("mcp_conexao", "renovar", _) => "Renovar a chave desta conexão?\n\nA chave antiga para de valer e é criada uma chave nova com acesso de leitura às suas conversas.",
         ("mcp_conexao", "revogar_todas", _) => "Revogar todas as conexões?\n\nTodos os apps de IA perdem o acesso agora e as chaves são apagadas.",
@@ -813,6 +843,8 @@ fn main() {
             lite_popup_style,
             lite_notice_pos,
             lite_dicas,
+            lite_midia,
+            documento::doc_pdf,
             mcp::mcp_result,
             mcp::mcp_conexao,
             mcp::mcp_copiar,
@@ -896,6 +928,8 @@ mod tests {
             ("mcp_conexao", "le_on", true),
             // Fase 7: ligar a transcrição de áudio
             ("lite_set", "audio_on", true),
+            // Fase 19: ligar "Pode abrir documentos"
+            ("mcp_conexao", "docs_on", true),
         ];
         for (c, a, on) in pede {
             assert!(aviso(c, a, on).is_some(), "{c} {a} {on} tem de pedir");
@@ -932,6 +966,12 @@ mod tests {
             ("audio_motor", "baixar", false),
             ("audio_motor", "apagar", false),
             ("audio_motor", "limpar", false),
+            // Fase 19: desligar documentos não aumenta o poder; teto de imagens é custo, não poder (assumido)
+            ("mcp_conexao", "docs_off", false),
+            ("mcp_conexao", "docs_on", false),
+            ("lite_midia", "fotos", false),
+            ("lite_midia", "anim", true),
+            ("doc_pdf", "", false),
         ];
         for (c, a, on) in livre {
             assert!(aviso(c, a, on).is_none(), "{c} {a} {on} não pede");
