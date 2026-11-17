@@ -1101,7 +1101,8 @@ fn tools_todas() -> Value {
             "inputSchema": {"type": "object", "properties": {
                 "filtro": {"type": "string", "description": "parte do nome para filtrar"},
                 "limite": {"type": "integer", "description": "máximo de conversas (padrão 50)"},
-                "fotos": {"type": "boolean", "description": "true = traz também a URL da foto de perfil (miniatura) de cada conversa; null sem foto"}
+                "fotos": {"type": "boolean", "description": "true = traz também a URL da foto de perfil (miniatura) de cada conversa; null sem foto"},
+                "chaves": {"type": "boolean", "description": "true = traz a chave de cada conversa e, em comunidades, comunidade/daComunidade/avisos"}
             }}
         },
         {
@@ -1110,9 +1111,11 @@ fn tools_todas() -> Value {
             "annotations": {"readOnlyHint": true, "openWorldHint": true},
             "inputSchema": {"type": "object", "properties": {
                 "conversa": {"type": "string", "description": "nome da conversa (aceita parte do nome)"},
+                "chave": {"type": "string", "description": "chave da conversa (de listar_conversas com chaves: true): vale no lugar do nome e nunca é ambígua"},
                 "desde": {"type": "string", "description": "data inicial AAAA-MM-DD (opcional)"},
                 "ate": {"type": "string", "description": "data final AAAA-MM-DD (opcional)"},
                 "limite": {"type": "integer", "description": "máximo de mensagens, padrão 1500, teto 10000"},
+                "chaves": {"type": "boolean", "description": "true = cada mensagem traz autorChave (a chave da pessoa; \"eu\" = o usuário)"},
                 "parcial": {"type": "boolean", "description": "true = devolve já, sem esperar a transcrição dos áudios (os pendentes vêm como \"transcrevendo\"). Só use quando o usuário pedir para não esperar ou depois de ele escolher resumir sem os áudios"}
             }, "required": ["conversa"]}
         },
@@ -1134,8 +1137,10 @@ fn tools_todas() -> Value {
             "annotations": {"readOnlyHint": true, "openWorldHint": true},
             "inputSchema": {"type": "object", "properties": {
                 "conversa": {"type": "string", "description": "nome do grupo (aceita parte do nome)"},
+                "chave": {"type": "string", "description": "chave do grupo (listar_conversas com chaves: true) ou, com pessoa, a chave da pessoa"},
                 "pessoa": {"type": "string", "description": "nome exato da pessoa, como aparece nas mensagens: devolve os grupos em que ela está"},
-                "fotos": {"type": "boolean", "description": "true = traz também a URL da foto de perfil (miniatura) de cada pessoa; null sem foto"}
+                "fotos": {"type": "boolean", "description": "true = traz também a URL da foto de perfil (miniatura) de cada pessoa; null sem foto"},
+                "chaves": {"type": "boolean", "description": "true = cada pessoa traz chave e diretaChave, e os grupos vêm com nome e chave"}
             }}
         },
         {
