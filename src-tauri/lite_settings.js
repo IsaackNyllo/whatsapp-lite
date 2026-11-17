@@ -1145,7 +1145,15 @@
     };
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh(); });
 
+    // aviso de versão nova: o app consulta o GitHub (1x por dia) e só avisa; erro/sem release = silêncio
+    function avisoVersao() {
+        setTimeout(() => invoke('atualizacao_verificar').then((tag) => {
+            if (tag && window.__wlPopup) window.__wlPopup.notice({ title: `Atualização disponível: ${tag}`, text: 'Há uma versão nova do app', acao: { label: 'Ver no GitHub', fn: () => invoke('atualizacao_abrir').catch(() => {}) } }, undefined, true);
+        }).catch(() => {}), 15000);
+    }
+
     function init() {
+        avisoVersao();
         // documentElement: o WhatsApp recria o body ao carregar
         new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
         schedule();

@@ -334,7 +334,7 @@
     }
 
     // aviso "IA leu" / "retida" dentro da janela (a bolinha tem o dela); pos: a topo, b canto de baixo
-    function notice({ title, text, icon }, pos = nPos, demo) {
+    function notice({ title, text, icon, acao }, pos = nPos, demo) {
         const box = document.getElementById(NOTICE_ID);
         const popup = document.getElementById(POPUP_ID);
         if (!box || (!demo && (!nOn || (popup && popup.classList.contains('wl-show'))))) return;
@@ -350,6 +350,12 @@
         top.append(av, body, close);
         box.replaceChildren(top);
         box.onclick = hide; // clique ou × só fecha
+        if (acao) { // botão opcional (aviso de versão nova); o clique no cartão continua só fechando
+            const b = el('button', '', acao.label);
+            b.style.cssText = 'margin:6px 0 0;padding:3px 10px;border:0;border-radius:6px;background:#00a884;color:#fff;cursor:pointer;font:inherit';
+            b.onclick = (e) => { e.stopPropagation(); hide(); acao.fn(); };
+            body.append(b);
+        }
         box.classList.add('wl-show');
         clearTimeout(noticeTimer);
         noticeTimer = setTimeout(hide, SHOW_MS);

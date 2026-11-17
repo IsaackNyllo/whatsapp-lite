@@ -178,7 +178,7 @@ impl Transcricao {
 }
 
 /// Programa do Windows pelo caminho completo (não pelo PATH), sem a janela preta.
-fn sistema(nome: &str) -> Command {
+pub(crate) fn sistema(nome: &str) -> Command {
     let raiz = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
     crate::mcp::quiet(&format!(r"{raiz}\System32\{nome}"))
 }

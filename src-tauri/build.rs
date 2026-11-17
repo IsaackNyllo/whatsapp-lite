@@ -31,6 +31,8 @@ const COMMANDS: &[&str] = &[
     "audio_ler",
     "audio_transcrever",
     "audio_motor",
+    "atualizacao_verificar",
+    "atualizacao_abrir",
 ];
 
 fn main() {

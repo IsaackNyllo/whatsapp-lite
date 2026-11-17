@@ -3,6 +3,7 @@
     windows_subsystem = "windows"
 )]
 
+mod atualizacao;
 mod documento;
 mod filtro;
 mod mcp;
@@ -857,7 +858,9 @@ fn main() {
             filtro::filtro_ollama,
             transcricao::audio_ler,
             transcricao::audio_transcrever,
-            transcricao::audio_motor
+            transcricao::audio_motor,
+            atualizacao::atualizacao_verificar,
+            atualizacao::atualizacao_abrir
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

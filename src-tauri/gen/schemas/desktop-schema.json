@@ -177,6 +177,18 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the atualizacao_abrir command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-atualizacao-abrir",
+          "markdownDescription": "Enables the atualizacao_abrir command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the atualizacao_verificar command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-atualizacao-verificar",
+          "markdownDescription": "Enables the atualizacao_verificar command without any pre-configured scope."
+        },
+        {
           "description": "Enables the audio_ler command without any pre-configured scope.",
           "type": "string",
           "const": "allow-audio-ler",
@@ -349,6 +361,18 @@
           "type": "string",
           "const": "allow-mcp-result",
           "markdownDescription": "Enables the mcp_result command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the atualizacao_abrir command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-atualizacao-abrir",
+          "markdownDescription": "Denies the atualizacao_abrir command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the atualizacao_verificar command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-atualizacao-verificar",
+          "markdownDescription": "Denies the atualizacao_verificar command without any pre-configured scope."
         },
         {
           "description": "Denies the audio_ler command without any pre-configured scope.",

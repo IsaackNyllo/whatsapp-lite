@@ -38,6 +38,8 @@
     "allow-filtro-ollama",
     "allow-audio-ler",
     "allow-audio-transcrever",
-    "allow-audio-motor"
+    "allow-audio-motor",
+    "allow-atualizacao-verificar",
+    "allow-atualizacao-abrir"
   ]
 }
