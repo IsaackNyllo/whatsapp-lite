@@ -1100,7 +1100,8 @@ fn tools_todas() -> Value {
             "annotations": {"readOnlyHint": true, "openWorldHint": true},
             "inputSchema": {"type": "object", "properties": {
                 "filtro": {"type": "string", "description": "parte do nome para filtrar"},
-                "limite": {"type": "integer", "description": "máximo de conversas (padrão 50)"}
+                "limite": {"type": "integer", "description": "máximo de conversas (padrão 50)"},
+                "fotos": {"type": "boolean", "description": "true = traz também a URL da foto de perfil (miniatura) de cada conversa; null sem foto"}
             }}
         },
         {
@@ -1133,7 +1134,8 @@ fn tools_todas() -> Value {
             "annotations": {"readOnlyHint": true, "openWorldHint": true},
             "inputSchema": {"type": "object", "properties": {
                 "conversa": {"type": "string", "description": "nome do grupo (aceita parte do nome)"},
-                "pessoa": {"type": "string", "description": "nome exato da pessoa, como aparece nas mensagens: devolve os grupos em que ela está"}
+                "pessoa": {"type": "string", "description": "nome exato da pessoa, como aparece nas mensagens: devolve os grupos em que ela está"},
+                "fotos": {"type": "boolean", "description": "true = traz também a URL da foto de perfil (miniatura) de cada pessoa; null sem foto"}
             }}
         },
         {

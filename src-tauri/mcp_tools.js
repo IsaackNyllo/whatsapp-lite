@@ -331,7 +331,7 @@
     varrerPassado();
   }
 
-  async function listar_conversas({ filtro, limite = 50 } = {}, ctx = {}) {
+  async function listar_conversas({ filtro, limite = 50, fotos } = {}, ctx = {}) {
     limite = Math.max(1, Math.min(+limite || 50, 1000));
     let lista = C().Chat.getModelsArray();
     if (filtro) {
@@ -345,9 +345,11 @@
     });
     // só as regras (sem a IA local): a lista é pedida muitas vezes
     const f = await filtrar(sel.map(([c, l]) => l && item(l, seguro(chatName(c)), autorDe(l, c))), false);
+    const fs = fotos === true ? await fotosDe(sel.map(([c]) => c.id)) : null;
     const conversas = sel.map(([c, l]) => {
       const o = { nome: seguro(chatName(c)), grupo: c.id.server === 'g.us', arquivada: !!c.archive,
         naoLidas: Math.max(0, c.unreadCount || 0), ultimaAtividade: c.t ? hora(c.t) : null };
+      if (fs) o.foto = fs.get(String(c.id));
       if (l) o.ultima = { autor: autorDe(l, c), texto: f.retidas.has(keyOf(l)) ? MARCA : texto(l).slice(0, 100) };
       return o;
     });
@@ -645,13 +647,24 @@
     const direta = C().Chat.get(wid) || (fone && C().Chat.get(fone));
     return { nome: seguro(nomeContato(wid)), contato: !!ct.isAddressBookContact, numero: fonePart(fone && fone.user), direta: direta ? seguro(chatName(direta)) : null };
   }
+  // fotos: true (Fase 18) = URL da miniatura de perfil (CDN do WhatsApp, expira em semanas). O que não está na memória
+  // da página é pedido ao WhatsApp, tudo junto, por até 5 s; sem foto (privacidade) ou sem resposta: null.
+  async function fotosDe(wids) {
+    const P = C().ProfilePicThumb, url = t => (t && (t.previewEurl || t.eurl || t.img)) || null;
+    const out = new Map(wids.map(w => [String(w), url(P.get(w))]));
+    const faltam = wids.filter(w => !out.get(String(w)));
+    await Promise.race([Promise.all(faltam.map(w => P.find(w).then(t => { out.set(String(w), url(t)); }, () => {}))), dorme(5000)]);
+    return out;
+  }
+  const comFotos = async (lista, wids) => { const f = await fotosDe(wids); lista.forEach((p, i) => { if (!p.eu) p.foto = f.get(String(wids[i])); }); };
   const membrosDe = g => g.groupMetadata && g.groupMetadata.participants ? g.groupMetadata.participants.getModelsArray() : null;
-  async function listar_participantes({ conversa, pessoa } = {}, ctx = {}) {
+  async function listar_participantes({ conversa, pessoa, fotos } = {}, ctx = {}) {
     if (conversa) {
       const chat = acharConversa(conversa), nome = seguro(chatName(chat)), ps = membrosDe(chat);
       if (chat.id.server !== 'g.us') throw new Error('"' + nome + '" não é grupo.');
       if (!ps) throw new Error('O WhatsApp ainda não carregou os participantes de "' + nome + '". Tente de novo em alguns segundos.');
       const participantes = ps.map(p => membro(p.id));
+      if (fotos === true) await comFotos(participantes, ps.map(p => p.id));
       ctx.uso = { conversa: nome, n: participantes.length };
       avisarLeitura(ctx, nome, participantes.length + ' participantes', 0, 'viu quem está em');
       return { aviso: AVISO_NOMES, conversa: nome, total: participantes.length, participantes };
@@ -665,14 +678,16 @@
       for (const p of membrosDe(g) || []) {
         if (eu(p.id) || norm(nomeContato(p.id)) !== q) continue;
         const k = String(p.id);
-        if (!achados.has(k)) achados.set(k, { ...membro(p.id), grupos: [] });
+        if (!achados.has(k)) achados.set(k, { ...membro(p.id), grupos: [], wid: p.id });
         achados.get(k).grupos.push(seguro(chatName(g)));
       }
     }
     // sem grupo em comum: só a conversa direta
     if (!achados.size) for (const c of C().Chat.getModelsArray())
-      if (c.id.server !== 'g.us' && CONVERSAS.includes(c.id.server) && norm(chatName(c)) === q) achados.set(String(c.id), { ...membro(c.id), grupos: [] });
-    const pessoas = [...achados.values()];
+      if (c.id.server !== 'g.us' && CONVERSAS.includes(c.id.server) && norm(chatName(c)) === q) achados.set(String(c.id), { ...membro(c.id), grupos: [], wid: c.id });
+    const pessoas = [...achados.values()], wids = pessoas.map(p => p.wid);
+    pessoas.forEach(p => delete p.wid);
+    if (fotos === true) await comFotos(pessoas, wids);
     ctx.uso = { conversa: null, n: pessoas.length };
     avisarLeitura(ctx, 'os grupos de ' + seguro(pessoa), pessoas.reduce((s, p) => s + p.grupos.length, 0) + ' grupos', 0, 'viu');
     return { aviso: AVISO_NOMES, pessoa: seguro(pessoa), pessoas };
