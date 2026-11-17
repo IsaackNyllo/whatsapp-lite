@@ -30,6 +30,7 @@
     "allow-mcp-conexao",
     "allow-mcp-copiar",
     "allow-mcp-escrita",
+    "allow-mcp-fora",
     "allow-filtro-verificar",
     "allow-filtro-fila",
     "allow-filtro-get",

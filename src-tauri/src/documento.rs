@@ -10,7 +10,7 @@ pub const POR_VEZ: u32 = 5;
 const LADO: f32 = 1280.0;
 
 /// Base64 padrão, para devolver o JPEG à página.
-fn para_base64(b: &[u8]) -> String {
+pub(crate) fn para_base64(b: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut s = String::with_capacity(b.len().div_ceil(3) * 4);
     for c in b.chunks(3) {

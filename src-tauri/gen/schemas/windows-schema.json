@@ -357,6 +357,12 @@
           "markdownDescription": "Enables the mcp_escrita command without any pre-configured scope."
         },
         {
+          "description": "Enables the mcp_fora command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mcp-fora",
+          "markdownDescription": "Enables the mcp_fora command without any pre-configured scope."
+        },
+        {
           "description": "Enables the mcp_result command without any pre-configured scope.",
           "type": "string",
           "const": "allow-mcp-result",
@@ -541,6 +547,12 @@
           "type": "string",
           "const": "deny-mcp-escrita",
           "markdownDescription": "Denies the mcp_escrita command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mcp_fora command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mcp-fora",
+          "markdownDescription": "Denies the mcp_fora command without any pre-configured scope."
         },
         {
           "description": "Denies the mcp_result command without any pre-configured scope.",

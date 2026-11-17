@@ -22,6 +22,7 @@ const COMMANDS: &[&str] = &[
     "mcp_conexao",
     "mcp_copiar",
     "mcp_escrita",
+    "mcp_fora",
     "filtro_verificar",
     "filtro_fila",
     "filtro_get",

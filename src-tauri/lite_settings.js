@@ -241,6 +241,7 @@
         #${VIEW} .wl-dt .wl-app { width: 34px; height: 34px; }
         /* escrever (Fase 15) e dicas com X */
         #${VIEW} .wl-state.w { background: var(--wl-iabg); color: var(--wl-iatx); }
+        #${VIEW} .wl-fora { flex: none; font-size: 11px; padding: 1px 8px; border-radius: 8px; background: var(--wl-warnbg); color: var(--wl-warntx); white-space: nowrap; }
         #${VIEW} .wl-pill.g { background: #00a884; color: #fff; }
         #${VIEW} .wl-tip { display: flex; gap: 8px; align-items: flex-start; }
         #${VIEW} .wl-tip > div { flex: 1; min-width: 0; }
@@ -369,7 +370,9 @@
     const conn = () => (state.conexoes || []).find((c) => c.id === cur);
     const tile = (tipo) => tipo === 'outro' ? `<div class="wl-app wl-gen">${PLUG}</div>`
         : `<div class="wl-app${tipo === 'claude' ? ' wl-claude' : ''}">${APP_ICONS[tipo] || ''}</div>`;
-    const sub = (c) => (!c.le ? 'Não lê nada'
+    const FORA = '<span class="wl-fora">de fora do PC</span>';
+    const linhaConn = (c) => `<button class="wl-conn" data-det="${c.id}">${tile(c.tipo)}<div class="wl-txt"><div class="wl-t">${esc(c.nome)}</div><div class="wl-s">${sub(c)}</div></div><span class="wl-chips">${c.fora ? FORA : ''}${c.le ? '<span class="wl-state">Lê</span>' : ''}${c.escreve ? '<span class="wl-state w">Escreve</span>' : ''}<span class="wl-state${c.ativa ? '' : ' off'}">${c.ativa ? 'Ativa' : 'Pausada'}</span></span>${CHEV}</button>`;
+    const sub = (c) => c.fora && !c.ultima && c.le ? `${c.escreve ? 'Lê e escreve' : 'Só lê'} · autorizado ${quandoT(c.criada)}` : (!c.le ? 'Não lê nada'
         : c.ultima ? `Última leitura ${quandoT(c.ultima)} · ${num(c.chamadas)} ${c.chamadas === 1 ? 'chamada' : 'chamadas'} · ${num(c.mensagens)} ${c.mensagens === 1 ? 'mensagem' : 'mensagens'}` : 'Ainda não leu nada') +
         (c.enviadas ? ` · ${num(c.enviadas)} ${c.enviadas === 1 ? 'enviada' : 'enviadas'}` : '');
 
@@ -482,13 +485,26 @@
             const [cls, text] = !state.mcp_enabled ? ['off', 'Leitura desligada: nenhuma IA lê, mesmo as conexões com "Pode ler"']
                 : state.mcp_listening ? ['', 'Leitura ativa neste computador']
                 : ['off', 'Porta 47800 ocupada: feche o programa que a usa e ligue de novo'];
-            const cs = state.conexoes || [], e = state.escrita;
+            const cs = state.conexoes || [], e = state.escrita, f = state.fora || {};
+            const pc = cs.filter((c) => !c.fora), fora = cs.filter((c) => c.fora);
             return row('Permitir que IAs leiam suas conversas', '',
                     sw('mcp_enabled', state.mcp_enabled, 'Permitir que IAs leiam suas conversas')) +
                 `<div class="wl-status ${cls}"><i></i>${text}</div>` +
-                group(`Conexões (${cs.length}) <span class="wl-mut">· cada app tem a sua chave</span>`) +
-                cs.map((c) => `<button class="wl-conn" data-det="${c.id}">${tile(c.tipo)}<div class="wl-txt"><div class="wl-t">${esc(c.nome)}</div><div class="wl-s">${sub(c)}</div></div><span class="wl-chips">${c.le ? '<span class="wl-state">Lê</span>' : ''}${c.escreve ? '<span class="wl-state w">Escreve</span>' : ''}<span class="wl-state${c.ativa ? '' : ' off'}">${c.ativa ? 'Ativa' : 'Pausada'}</span></span>${CHEV}</button>`).join('') +
+                group('Acesso de fora do PC <span class="wl-new">novo</span>') +
+                row('Acesso de fora do PC', 'Celular e apps da internet (Claude, Gemini)', sw('fora_on', f.ligado, 'Acesso de fora do PC')) +
+                (f.ligado
+                    ? (f.endereco ? '<div class="wl-status"><i></i>Ligado · túnel ativo pelo Tailscale</div>' +
+                        lbl('Endereço para colar no app') + copyrow(f.endereco, 'fora') +
+                        info('<b>Como conectar:</b> no Claude, em Conectores › Adicionar personalizado; no Gemini, em Conectores › Conectar a um servidor MCP. Cole o endereço. O app pede para entrar e o seu PC pergunta se pode.')
+                      : `<div class="wl-status bad"><i></i>Ligado, mas o túnel não abriu${f.erro ? ': ' + esc(f.erro) : ''}</div>`)
+                    : info('<b>Desligado:</b> o túnel está fechado. Ninguém de fora lê nada. O Claude Code do PC continua funcionando.') +
+                      (f.erro ? `<div class="wl-status bad"><i></i>${esc(f.erro)}</div>` : '')) +
+                group(`Neste PC (${pc.length}) <span class="wl-mut">· cada app tem a sua chave</span>`) +
+                pc.map(linhaConn).join('') +
                 '<button class="wl-newconn" data-act="nova"><span class="wl-plus">+</span>Nova conexão</button>' +
+                group(`De fora do PC (${fora.length})`) +
+                fora.map(linhaConn).join('') +
+                info('Cada app de fora é uma conexão: começa <b>só lendo</b>. Escrever e abrir documentos você liga em cada uma. Pausar um não mexe no outro.') +
                 group('Escrever <span class="wl-new">novo</span>') +
                 nav('pen', 'Escrever', e.ligado ? `Ligado · ${e.canais.length} ${e.canais.length === 1 ? 'canal' : 'canais'} · limite por canal` : 'Desligado: nenhuma IA envia mensagem', 'escrever',
                     `<span class="wl-state${e.ligado ? ' w' : ' off'}">${e.ligado ? 'Ligado' : 'Desligado'}</span>`) +
@@ -564,11 +580,11 @@
         }],
         pronta: ['Conexão criada', pronto('Cole no app e abra uma sessão <b>nova</b>. Você pode ver isto de novo na tela da conexão, a qualquer hora.', 'chave nova criada')],
         renovada: ['Chave renovada', pronto('O app conectado perdeu o acesso. Cole o comando novo nele e abra uma sessão nova.', 'a chave antiga já não funciona')],
-        det: [(c) => `<span class="wl-dt">${tile(c.tipo)}${esc(c.nome)}</span>`, (c) => {
+        det: [(c) => `<span class="wl-dt">${tile(c.tipo)}${esc(c.nome)}${c.fora ? ' ' + FORA : ''}</span>`, (c) => {
             const e = state.escrita, meus = e.envios.filter((h) => h.conexao === c.id);
             const stat = (n, t) => `<div class="wl-stat"><b>${num(n)}</b><span>${t}</span></div>`;
-            return `<div class="wl-status ${c.ativa ? '' : 'off'}"><i></i>${c.ativa ? 'Ativa' : 'Pausada: o app recebe "não autorizado"'} · criada em ${dataCurta(c.criada)}</div>` +
-            row('Conexão ativa', 'Desligada, a chave fica guardada, mas o app não lê nem escreve nada até você ligar de novo', sw('conn_ativa', c.ativa, 'Conexão ativa')) +
+            return `<div class="wl-status ${c.ativa ? '' : 'off'}"><i></i>${c.ativa ? 'Ativa' : c.fora ? 'Pausada: o app recebe "conexão pausada"' : 'Pausada: o app recebe "não autorizado"'} · ${c.fora ? 'autorizada' : 'criada'} em ${dataCurta(c.criada)}</div>` +
+            row('Conexão ativa', `Desligada, a ${c.fora ? 'autorização' : 'chave'} fica guardada, mas o app não lê nem escreve nada até você ligar de novo`, sw('conn_ativa', c.ativa, 'Conexão ativa')) +
             group('Leitura') +
             row('Pode ler', c.le ? 'Vê todas as conversas. Só leitura; nada é marcado como lido.'
                 : 'Desligado: esta conexão não vê nenhuma conversa. Só recebe os nomes dos canais permitidos, para escolher onde escrever.', sw('conn_le', c.le, 'Pode ler')) +
@@ -580,7 +596,10 @@
                 : 'Desligado: esta conexão não envia nada', sw('conn_escreve', c.escreve, 'Pode escrever')) +
             (!e.ligado && c.escreve ? kv('<b>Escrever está desligado em geral.</b> Nada é enviado até você ligar em Conectores de IA › Escrever.') : '') +
             (c.escreve ? '<div class="wl-actions" style="padding-top:0"><button class="wl-btn" data-nav="escrever">Canais e limite</button></div>' : '') +
-            group('Conectar') + conectar(c) +
+            group('Conectar') + (c.fora
+                ? kv(c.autorizada ? `Entrou de fora do PC pelo túnel, autorizada aqui no PC. O login volta para <b>${esc(c.retorno || '—')}</b>.`
+                    : 'Autorização renovada: o app perdeu o acesso e, ao pedir de novo, o PC mostra a caixa com o código.')
+                : conectar(c)) +
             group('Consumo') +
             `<div class="wl-stats">${stat(c.chamadas, 'chamadas')}${c.le ? stat(c.mensagens, 'mensagens lidas') + stat(c.imagens, 'imagens vistas') + stat(c.audios, 'áudios transcritos') : ''}${c.docs || c.documentos ? stat(c.documentos, 'documentos abertos') : ''}${c.escreve || c.enviadas ? stat(c.enviadas, 'mensagens enviadas') : ''}</div>` +
             (c.le ? `<div class="wl-kv"><span>Última leitura: <b>${c.ultima ? quandoT(c.ultima) : 'nunca'}</b></span></div>` : '') +
@@ -591,13 +610,14 @@
                 : '<div class="wl-empty" style="padding:16px">Nenhuma leitura ainda.</div>') : '') +
             (c.escreve || meus.length ? group('Últimos envios <span class="wl-mut">· hora, canal e tamanho, nunca o texto</span>') +
                 (meus.length ? meus.slice(0, 20).map(envioLinha(false)).join('') : '<div class="wl-empty" style="padding:16px">Nenhum envio ainda.</div>') : '') +
-            group('Chave de acesso') +
+            group(c.fora ? 'Autorização' : 'Chave de acesso') +
             (asking === 'renovar'
-                ? `<div class="wl-confirm"><p><b>Renovar a chave de "${esc(c.nome)}"?</b> O app conectado perde o acesso agora e só volta quando você colar o comando novo.</p><div class="wl-actions"><button class="wl-btn" data-act="nao">Cancelar</button><button class="wl-big" data-act="renovar">Renovar</button></div></div>`
+                ? `<div class="wl-confirm"><p><b>${c.fora ? 'Renovar a autorização' : 'Renovar a chave'} de "${esc(c.nome)}"?</b> ${c.fora ? 'O app perde o acesso agora e só volta depois de você aprovar de novo no PC, com o código.' : 'O app conectado perde o acesso agora e só volta quando você colar o comando novo.'}</p><div class="wl-actions"><button class="wl-btn" data-act="nao">Cancelar</button><button class="wl-big" data-act="renovar">Renovar</button></div></div>`
                 : asking === 'revogar'
                 ? `<div class="wl-confirm"><p><b>Revogar "${esc(c.nome)}"?</b> O app perde o acesso agora e a conexão deixa de existir. Os outros apps não são afetados.</p><div class="wl-actions"><button class="wl-btn" data-act="nao">Cancelar</button><button class="wl-btn wl-danger" data-act="revogar">Revogar</button></div></div>`
-                : row('Renovar chave', 'Gera uma chave nova. O app conectado cai até você colar o comando novo.', '<button class="wl-btn" data-act="ask_renovar">Renovar</button>') +
-                  row('<span class="wl-danger">Revogar conexão</span>', 'Apaga esta conexão e a chave de vez. Os outros apps continuam.', '<button class="wl-btn wl-danger" data-act="ask_revogar">Revogar</button>'));
+                : (c.fora ? row('Renovar autorização', 'O app perde o acesso agora e pede de novo: o PC mostra a caixa com o código.', '<button class="wl-btn" data-act="ask_renovar">Renovar</button>')
+                    : row('Renovar chave', 'Gera uma chave nova. O app conectado cai até você colar o comando novo.', '<button class="wl-btn" data-act="ask_renovar">Renovar</button>')) +
+                  row('<span class="wl-danger">Revogar conexão</span>', c.fora ? 'Apaga esta conexão de vez. Para voltar, conecte de novo pelo app e aprove no PC.' : 'Apaga esta conexão e a chave de vez. Os outros apps continuam.', '<button class="wl-btn wl-danger" data-act="ask_revogar">Revogar</button>'));
         }],
         todas: ['Revogar todas as conexões', () => {
             const n = (state.conexoes || []).length;
@@ -941,7 +961,7 @@
         if (t.dataset.cp) {
             const ok = await invoke('mcp_copiar', { id: cur, oque: t.dataset.cp }).catch((e) => String(e));
             const c = conn();
-            const what = { endereco: 'Endereço copiado', chave: 'Chave copiada' }[t.dataset.cp]
+            const what = { endereco: 'Endereço copiado', fora: 'Endereço copiado', chave: 'Chave copiada' }[t.dataset.cp]
                 || (c && (c.tipo === 'codex' || c.tipo === 'outro') ? 'Trecho copiado' : 'Comando copiado');
             return toast(ok === true ? what : ok || 'Não deu para copiar. Tente de novo.');
         }
@@ -969,7 +989,9 @@
         if (act === 'todas') return go('todas');
         if (act === 'ask_renovar' || act === 'ask_revogar' || act === 'nao') { asking = act === 'nao' ? null : act.slice(4); return render(); }
         if (act === 'renovar') {
+            const fora = conn() && conn().fora;
             const ok = await conexao('renovar');
+            if (ok && fora) { render(); return toast('Autorização renovada: o app vai pedir de novo'); }
             if (ok) { toast('Chave renovada'); return go('renovada'); }
             render();
             return toast(falha || 'Não deu para renovar a chave.');
@@ -1005,6 +1027,13 @@
                 : (on ? 'Conexão pode escrever' : 'Esta conexão não escreve mais'));
         }
         if (k === 'escrita_on') { if (await escrita('ligar')) toast('Escrever ligado'); return; }
+        // acesso de fora: ligar pede a caixa e abre o túnel do Tailscale (alguns segundos); desligar fecha na hora
+        if (k === 'fora_on') {
+            if (on) toast('Abrindo o túnel…');
+            const novo = await invoke('mcp_fora', { acao: on ? 'ligar' : 'desligar' }).catch((e) => { toast(String(e)); return null; });
+            if (novo) { state = novo; toast(on ? 'Acesso de fora ligado' : 'Acesso de fora desligado: túnel fechado'); }
+            return render();
+        }
         if (k === 'bubble_mode') return on && invoke('bubble_enter');
         if (k.startsWith('b.')) { state.bubble[k.slice(2)] = on; render(); return saveBubble(); }
         // recusa na caixa Sim/Não do app: nada mudou, o interruptor volta ao valor real

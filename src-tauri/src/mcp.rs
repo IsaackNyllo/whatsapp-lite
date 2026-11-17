@@ -83,6 +83,19 @@ struct Conexao {
     docs: bool,
     #[serde(default)]
     documentos: u64,
+    /// "De fora do PC" (Fase 10): entra só por OAuth pelo túnel, nunca por chave (`chave` fica vazia)
+    #[serde(default)]
+    fora: bool,
+    /// client_id do registro OAuth e os endereços de retorno registrados
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cliente: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    retornos: Vec<String>,
+    /// SHA-256 (hex) do refresh token e do segredo do cliente: nunca o valor
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refresh: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    segredo: Option<String>,
 }
 
 /// O que a chave dá: a conexão e as permissões dela.
@@ -100,7 +113,7 @@ pub struct Conexoes {
     lista: Mutex<Vec<Conexao>>,
 }
 
-fn agora() -> u64 {
+pub(crate) fn agora() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
@@ -118,7 +131,7 @@ fn conexao(id: u64, nome: &str, tipo: &str, chave: String) -> Conexao {
     Conexao {
         id, nome: nome.into(), tipo: tipo.into(), chave, ativa: true, criada: agora(), ultima: None,
         chamadas: 0, mensagens: 0, imagens: 0, historico: Vec::new(), le: true, escreve: false, enviadas: 0, audios: 0,
-        docs: false, documentos: 0,
+        docs: false, documentos: 0, fora: false, cliente: None, retornos: Vec::new(), refresh: None, segredo: None,
     }
 }
 
@@ -188,7 +201,7 @@ impl Conexoes {
     /// Conexão ativa dona da chave, com as permissões. Compara com todas, sem parar na primeira.
     pub fn autentica(&self, dada: &str) -> Option<Acesso> {
         self.lista.lock().unwrap().iter().fold(None, |achou, c| {
-            if same_token(dada, &c.chave) && c.ativa { Some(Acesso { id: c.id, le: c.le, escreve: c.escreve, docs: c.docs }) } else { achou }
+            if same_token(dada, &c.chave) && c.ativa && !c.fora { Some(Acesso { id: c.id, le: c.le, escreve: c.escreve, docs: c.docs }) } else { achou }
         })
     }
 
@@ -197,6 +210,55 @@ impl Conexoes {
         let lista = self.lista.lock().unwrap();
         let c = lista.iter().find(|c| c.id == id)?;
         Some(match qual { "le" => c.le, "docs" => c.docs, _ => c.escreve })
+    }
+
+    // ---- de fora do PC (Fase 10): o OAuth fica em fora.rs; aqui só o que mora na conexão ----
+
+    /// Código trocado: a conexão de fora deste cliente (ou uma nova, só lendo) passa a ter este refresh (hash).
+    /// Reautorizar depois de renovar volta para a mesma conexão, com as permissões e o consumo dela.
+    pub fn fora_conectar(&self, cliente: &str, nome: &str, tipo: &str, retornos: &[String], segredo: Option<String>, refresh: String) -> u64 {
+        let mut lista = self.lista.lock().unwrap();
+        let id = match lista.iter_mut().find(|c| c.fora && c.cliente.as_deref() == Some(cliente)) {
+            Some(c) => {
+                c.refresh = Some(refresh);
+                c.id
+            }
+            None => {
+                let id = lista.iter().map(|c| c.id).max().unwrap_or(0) + 1;
+                let mut c = conexao(id, nome, tipo, String::new());
+                (c.fora, c.cliente, c.retornos, c.segredo, c.refresh) = (true, Some(cliente.into()), retornos.to_vec(), segredo, Some(refresh));
+                lista.push(c);
+                id
+            }
+        };
+        self.salvar(&lista);
+        id
+    }
+
+    /// Cliente que já tem conexão de fora (pode pedir de novo depois de renovar): nome, retornos e hash do segredo.
+    pub fn fora_cliente(&self, cliente: &str) -> Option<(String, Vec<String>, Option<String>)> {
+        let lista = self.lista.lock().unwrap();
+        lista.iter().find(|c| c.fora && c.cliente.as_deref() == Some(cliente)).map(|c| (c.nome.clone(), c.retornos.clone(), c.segredo.clone()))
+    }
+
+    /// Refresh token (hash) do cliente: devolve a conexão e o hash do segredo; `novo` troca o refresh (rotação).
+    pub fn fora_refresh(&self, cliente: &str, hash: &str, novo: Option<String>) -> Option<u64> {
+        let mut lista = self.lista.lock().unwrap();
+        let c = lista.iter_mut().find(|c| c.fora && c.cliente.as_deref() == Some(cliente) && c.refresh.as_deref().is_some_and(|r| same_token(hash, r)))?;
+        let id = c.id;
+        if let Some(n) = novo {
+            c.refresh = Some(n);
+            self.salvar(&lista);
+        }
+        Some(id)
+    }
+
+    /// Token de acesso: vale só enquanto a conexão de fora existe com o mesmo refresh (renovar e revogar derrubam).
+    /// Devolve as permissões e se está ativa (pausada = recusa).
+    pub fn fora_acesso(&self, id: u64, refresh: &str) -> Option<(Acesso, bool)> {
+        let lista = self.lista.lock().unwrap();
+        let c = lista.iter().find(|c| c.id == id && c.fora && c.refresh.as_deref().is_some_and(|r| same_token(refresh, r)))?;
+        Some((Acesso { id: c.id, le: c.le, escreve: c.escreve, docs: c.docs }, c.ativa))
     }
 
     fn nome(&self, id: u64) -> String {
@@ -254,6 +316,8 @@ impl Conexoes {
             "ativar" | "pausar" | "renovar" | "limpar" | "le_on" | "le_off" | "escreve_on" | "escreve_off" | "docs_on" | "docs_off" => {
                 let c = lista.iter_mut().find(|c| c.id == id)?;
                 match acao {
+                    // de fora: sem refresh, os tokens caem e o app pede autorização de novo (caixa no PC)
+                    "renovar" if c.fora => c.refresh = None,
                     "renovar" => c.chave = nova_chave()?, // a antiga deixa de valer na hora
                     "limpar" => c.historico.clear(),
                     "le_on" | "le_off" => c.le = acao == "le_on",
@@ -288,7 +352,9 @@ impl Conexoes {
                     "chamadas": c.chamadas, "mensagens": c.mensagens, "imagens": c.imagens,
                     "le": c.le, "escreve": c.escreve, "enviadas": c.enviadas, "audios": c.audios,
                     "docs": c.docs, "documentos": c.documentos,
-                    "chave": m, "conectar": connect_command(&c.tipo, &m),
+                    // de fora: sem chave nem comando; a tela mostra para onde o login volta
+                    "fora": c.fora, "retorno": c.retornos.first().map(|r| crate::fora::host_de(r)), "autorizada": c.refresh.is_some(),
+                    "chave": if c.fora { None } else { Some(m.clone()) }, "conectar": if c.fora { None } else { connect_command(&c.tipo, &m) },
                     "historico": c.historico.iter().rev().collect::<Vec<_>>(),
                 })
             })
@@ -298,13 +364,27 @@ impl Conexoes {
     /// Texto com a chave real, só para a área de transferência.
     fn para_copiar(&self, id: u64, oque: &str) -> Option<String> {
         let lista = self.lista.lock().unwrap();
-        let c = lista.iter().find(|c| c.id == id)?;
+        let c = lista.iter().find(|c| c.id == id && !c.fora)?;
         match oque {
             "conectar" => connect_command(&c.tipo, &c.chave),
             "chave" => Some(c.chave.clone()),
             "endereco" => Some(URL.into()),
             _ => None,
         }
+    }
+}
+
+/// Para os testes de fora.rs (as ações e a chave são privadas deste módulo).
+#[cfg(test)]
+impl Conexoes {
+    pub fn acao_teste(&self, id: u64, acao: &str) {
+        self.acao(acao, id, "", "");
+    }
+    pub fn acao_teste_criar(&self) -> u64 {
+        self.acao("criar", 0, "Local", "claude").unwrap()
+    }
+    pub fn chave_teste(&self, id: u64) -> String {
+        self.lista.lock().unwrap().iter().find(|c| c.id == id).unwrap().chave.clone()
     }
 }
 
@@ -696,7 +776,10 @@ pub async fn mcp_conexao(app: AppHandle, acao: String, id: Option<u64>, nome: Op
         _ => false,
     };
     let detalhe = if on { format!("\n\nConexão: {}", conexoes.nome(id.unwrap_or(0))) } else { String::new() };
-    crate::confirma_com(&app, "mcp_conexao", &acao, on, &detalhe).await?;
+    // renovar uma de fora só tira o acesso (o app pede autorização de novo, com a caixa): não cria chave, não pergunta
+    let fora = conexoes.lista.lock().unwrap().iter().any(|c| Some(c.id) == id && c.fora);
+    let alvo = if acao == "renovar" && fora { "renovar_fora" } else { acao.as_str() };
+    crate::confirma_com(&app, "mcp_conexao", alvo, on, &detalhe).await?;
     let r = conexoes.acao(&acao, id.unwrap_or(0), nome.as_deref().unwrap_or(""), tipo.as_deref().unwrap_or(""));
     Ok(json!({ "ok": r.is_some(), "id": r, "conexoes": conexoes.visao() }))
 }
@@ -705,7 +788,9 @@ pub async fn mcp_conexao(app: AppHandle, acao: String, id: Option<u64>, nome: Op
 /// O que leva a chave (chave, comando) pede "Sim" na caixa do Windows; o endereço não.
 #[tauri::command]
 pub async fn mcp_copiar(app: AppHandle, id: u64, oque: String) -> Result<bool, String> {
-    let Some(texto) = app.state::<Conexoes>().para_copiar(id, &oque) else { return Ok(false) };
+    // "fora": o endereço público do túnel (Fase 10), sem chave nenhuma
+    let texto = if oque == "fora" { app.state::<crate::fora::Fora>().endereco_mcp() } else { app.state::<Conexoes>().para_copiar(id, &oque) };
+    let Some(texto) = texto else { return Ok(false) };
     crate::confirma(&app, "mcp_copiar", &oque, false).await?;
     Ok(copy_to_clipboard(&texto).map_err(|e| eprintln!("Erro ao copiar: {e}")).is_ok())
 }
@@ -719,13 +804,18 @@ pub struct Request {
 }
 
 impl Request {
-    fn header(&self, name: &str) -> Option<&str> {
+    pub fn header(&self, name: &str) -> Option<&str> {
         self.headers.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
     }
 }
 
 /// "wlk_" + 32 bytes do gerador criptográfico do sistema, em hex. None se o sistema falhar.
 fn nova_chave() -> Option<String> {
+    aleatorio("wlk_")
+}
+
+/// Prefixo + 32 bytes do gerador criptográfico do sistema, em hex (chaves, tokens e códigos OAuth).
+pub(crate) fn aleatorio(prefixo: &str) -> Option<String> {
     let mut buf = [0u8; 32];
     #[cfg(windows)]
     let ok = unsafe {
@@ -740,7 +830,7 @@ fn nova_chave() -> Option<String> {
         eprintln!("MCP: falha ao gerar a chave");
         return None;
     }
-    Some(format!("wlk_{}", buf.iter().map(|b| format!("{b:02x}")).collect::<String>()))
+    Some(format!("{prefixo}{}", buf.iter().map(|b| format!("{b:02x}")).collect::<String>()))
 }
 
 /// Comando (ou trecho de configuração, no Codex e em "Outro app") para ligar o app de IA ao servidor.
@@ -817,26 +907,35 @@ fn serve(app: &AppHandle, mut stream: TcpStream) {
         }
         Err(status) => (status, String::new()),
     };
+    responder(&mut stream, status, "application/json", &[], &body);
+}
+
+/// Escreve a resposta HTTP e fecha (uma requisição por conexão).
+pub(crate) fn responder(stream: &mut TcpStream, status: u16, tipo: &str, extra: &[(&str, String)], body: &str) {
     let reason = match status {
         200 => "OK",
+        201 => "Created",
         202 => "Accepted",
+        302 => "Found",
         401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
         413 => "Payload Too Large",
+        429 => "Too Many Requests",
         503 => "Service Unavailable",
         _ => "Bad Request",
     };
+    let extra: String = extra.iter().map(|(n, v)| format!("{n}: {v}\r\n")).collect();
     let head = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {tipo}\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
     let _ = stream.write_all(head.as_bytes());
     let _ = stream.write_all(body.as_bytes());
 }
 
-fn read_request(stream: &TcpStream) -> Result<Request, u16> {
+pub(crate) fn read_request(stream: &TcpStream) -> Result<Request, u16> {
     let mut reader = BufReader::new(stream);
     let mut head = (&mut reader).take(MAX_HEAD);
     let mut line = String::new();
@@ -887,7 +986,7 @@ pub fn permite(a: Acesso, leitura: bool, escrita: bool, tool: &str) -> Result<()
     .into())
 }
 
-fn call_tool(app: &AppHandle, a: Acesso, tool: &str, args: &Value) -> Result<String, String> {
+pub(crate) fn call_tool(app: &AppHandle, a: Acesso, tool: &str, args: &Value) -> Result<String, String> {
     let conexoes = app.state::<Conexoes>();
     let escrita = app.state::<Escrita>();
     let leitura = app.state::<crate::Settings>().mcp_enabled.load(Ordering::Relaxed);
@@ -1005,7 +1104,7 @@ fn local_origin(origin: &str) -> bool {
     host == "localhost" || host == "127.0.0.1"
 }
 
-fn same_token(given: &str, token: &str) -> bool {
+pub(crate) fn same_token(given: &str, token: &str) -> bool {
     // comparação sem atalho: não entrega o token pelo tempo de resposta
     !token.is_empty()
         && given.len() == token.len()
@@ -1031,6 +1130,11 @@ pub fn handle(
     let Some(conexao) = given.and_then(|g| auth(g.trim())) else {
         return (401, String::new());
     };
+    rpc(req, conexao, enabled, call)
+}
+
+/// JSON-RPC do MCP para uma conexão já autenticada (pela chave aqui, pelo OAuth em fora.rs).
+pub fn rpc(req: &Request, conexao: Acesso, enabled: bool, call: impl Fn(Acesso, &str, &Value) -> Result<String, String>) -> (u16, String) {
     if req.method != "POST" {
         return (405, String::new());
     }

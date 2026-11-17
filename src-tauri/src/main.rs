@@ -6,6 +6,7 @@
 mod atualizacao;
 mod documento;
 mod filtro;
+mod fora;
 mod mcp;
 mod transcricao;
 
@@ -249,6 +250,7 @@ fn save_settings(app: &AppHandle) {
         "audio_on": settings.audio_on.load(Ordering::Relaxed),
         "midia_fotos": settings.midia_fotos.load(Ordering::Relaxed),
         "midia_anim": settings.midia_anim.load(Ordering::Relaxed),
+        "fora_on": app.state::<fora::Fora>().ligado.load(Ordering::Relaxed),
     });
     let result = path
         .parent()
@@ -428,7 +430,7 @@ fn set_autostart(on: bool) -> std::io::Result<()> {
 }
 
 /// O que a tela "WhatsApp Lite" mostra. As chaves vêm mascaradas.
-fn lite_state(app: &AppHandle) -> Value {
+pub(crate) fn lite_state(app: &AppHandle) -> Value {
     let s = app.state::<Settings>();
     json!({
         "mcp_enabled": s.mcp_enabled.load(Ordering::Relaxed),
@@ -451,6 +453,7 @@ fn lite_state(app: &AppHandle) -> Value {
         "audio": app.state::<transcricao::Transcricao>().visao(s.audio_on.load(Ordering::Relaxed)),
         "midia_fotos": s.midia_fotos.load(Ordering::Relaxed),
         "midia_anim": s.midia_anim.load(Ordering::Relaxed),
+        "fora": app.state::<fora::Fora>().estado(),
     })
 }
 
@@ -508,6 +511,8 @@ fn aviso(comando: &str, alvo: &str, on: bool) -> Option<&'static str> {
         ("mcp_conexao", "revogar_todas", _) => "Revogar todas as conexões?\n\nTodos os apps de IA perdem o acesso agora e as chaves são apagadas.",
         // "conectar" é o comando com a chave dentro; só o endereço copia sem perguntar
         ("mcp_copiar", "chave" | "conectar", _) => "Copiar a chave de acesso?\n\nQuem tiver a chave lê suas conversas. Cole só no app que você vai conectar.",
+        // Fase 10: abrir o túnel para apps de fora do PC (desligar fecha sem perguntar)
+        ("mcp_fora", "ligar", true) => "Abrir o acesso de fora do PC?\n\nO app liga o túnel do Tailscale. Apps de fora (Claude, Gemini) só entram se você autorizar cada um aqui no PC, com código, e entram só lendo.",
         _ => return None,
     })
 }
@@ -799,6 +804,10 @@ fn main() {
             let json = read_settings(app.handle());
             app.manage(load_settings(&json));
             app.manage(mcp::Bridge::default());
+            // acesso de fora do PC (Fase 10): interruptor salvo, desligado por padrão
+            let fora = fora::Fora::default();
+            fora.ligado.store(json["fora_on"].as_bool().unwrap_or(false), Ordering::Relaxed);
+            app.manage(fora);
             let local = app.path().app_local_data_dir().ok();
             // conexões do MCP (uma chave por app): a chave única antiga vira a conexão "Claude Code"
             let (conexoes, migrou) = mcp::Conexoes::load(local.clone(), json["mcp_token"].as_str());
@@ -813,6 +822,7 @@ fn main() {
             // transcrição de áudio: motor em whisper\ e o texto em transcricoes.json (dados locais)
             app.manage(transcricao::Transcricao::load(local));
             filtro::esteira(app.handle().clone());
+            fora::iniciar(app.handle());
 
             setup_main_window(app).map_err(|e| {
                 eprintln!("Erro na inicialização: {}", e);
@@ -850,6 +860,7 @@ fn main() {
             mcp::mcp_conexao,
             mcp::mcp_copiar,
             mcp::mcp_escrita,
+            fora::mcp_fora,
             filtro::filtro_verificar,
             filtro::filtro_fila,
             filtro::filtro_get,
@@ -881,8 +892,14 @@ fn main() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("Erro ao iniciar WhatsApp Lite Desktop");
+        .build(tauri::generate_context!())
+        .expect("Erro ao iniciar WhatsApp Lite Desktop")
+        .run(|app, event| {
+            // o túnel de fora fecha junto com o app
+            if let tauri::RunEvent::Exit = event {
+                fora::ao_sair(app);
+            }
+        });
 }
 
 #[cfg(test)]
@@ -933,6 +950,8 @@ mod tests {
             ("lite_set", "audio_on", true),
             // Fase 19: ligar "Pode abrir documentos"
             ("mcp_conexao", "docs_on", true),
+            // Fase 10: abrir o acesso de fora do PC
+            ("mcp_fora", "ligar", true),
         ];
         for (c, a, on) in pede {
             assert!(aviso(c, a, on).is_some(), "{c} {a} {on} tem de pedir");
@@ -978,13 +997,18 @@ mod tests {
             ("lite_midia", "fotos", false),
             ("lite_midia", "anim", true),
             ("doc_pdf", "", false),
+            // Fase 10: desligar fecha; renovar uma de fora só tira o acesso; copiar o endereço não leva chave
+            ("mcp_fora", "desligar", false),
+            ("mcp_fora", "ligar", false),
+            ("mcp_conexao", "renovar_fora", false),
+            ("mcp_copiar", "fora", false),
         ];
         for (c, a, on) in livre {
             assert!(aviso(c, a, on).is_none(), "{c} {a} {on} não pede");
         }
         // cada comando sensível chama a caixa antes de mexer em algo
-        let fontes = [include_str!("main.rs"), include_str!("mcp.rs"), include_str!("filtro.rs")].concat();
-        for cmd in ["lite_set", "mcp_conexao", "mcp_copiar", "mcp_escrita", "filtro_acao", "filtro_minhas"] {
+        let fontes = [include_str!("main.rs"), include_str!("mcp.rs"), include_str!("filtro.rs"), include_str!("fora.rs")].concat();
+        for cmd in ["lite_set", "mcp_conexao", "mcp_copiar", "mcp_escrita", "filtro_acao", "filtro_minhas", "mcp_fora"] {
             let corpo = fontes.split(&format!("async fn {cmd}(")).nth(1).unwrap_or_else(|| panic!("{cmd} não é async"));
             let corpo = corpo.split("\n}").next().unwrap(); // fim da função (mcp.rs e filtro.rs têm CRLF)
             assert!(
