@@ -23,7 +23,7 @@ pub const PORTA: u16 = 47801;
 const PORTA_PUBLICA: u16 = 443;
 const DESTINO: &str = "http://127.0.0.1:47801";
 const TAILSCALE: &str = r"C:\Program Files\Tailscale\tailscale.exe";
-const TITULO_CAIXA: &str = "WhatsApp Lite · autorizar app";
+const TITULO_CAIXA: &str = "Zap⁺ · autorizar app";
 /// Segundos para responder no PC; depois disso, recusado.
 const ESPERA_PC: u64 = 120;
 const VIDA_ACESSO: u64 = 3600;
@@ -176,7 +176,7 @@ impl Fora {
             ("GET", "/.well-known/oauth-protected-resource" | "/.well-known/oauth-protected-resource/mcp") => resp(
                 200,
                 JSON,
-                json!({"resource": format!("{base}/mcp"), "authorization_servers": [base], "bearer_methods_supported": ["header"], "resource_name": "WhatsApp Lite"}).to_string(),
+                json!({"resource": format!("{base}/mcp"), "authorization_servers": [base], "bearer_methods_supported": ["header"], "resource_name": "Zap⁺"}).to_string(),
             ),
             ("GET", "/.well-known/oauth-authorization-server") => resp(
                 200,
@@ -410,7 +410,7 @@ impl Fora {
             return r;
         };
         if !ativa {
-            return resp(403, JSON, json!({"error": "Conexão pausada no app WhatsApp Lite. Nada foi lido."}).to_string());
+            return resp(403, JSON, json!({"error": "Conexão pausada no app Zap⁺. Nada foi lido."}).to_string());
         }
         let (status, corpo) = mcp::rpc(req, acesso, leitura, call);
         resp(status, JSON, corpo)
@@ -671,7 +671,7 @@ fn montar(status: u16, sub: &str, cartao: &str, recarregar: Option<&str>) -> Res
     let meta = recarregar.map_or(String::new(), |u| format!("<meta http-equiv=\"refresh\" content=\"2;url={}\">", esc(u)));
     let sub = if sub.is_empty() { String::new() } else { format!("<div class=\"sb\">{sub}</div>") };
     let html = format!(
-        "<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{meta}<title>WhatsApp Lite</title><style>:root{{--bg:#e9edef;--fg:#111b21;--mut:#667781;--card:#fff;--cx:#e9edef;--band:#075e54;--green:#00a884;color-scheme:light}}@media(prefers-color-scheme:dark){{:root{{--bg:#0b141a;--fg:#e9edef;--mut:#8696a0;--card:#111b21;--cx:#0b141a;--band:#0b3d36;--green:#21c063;color-scheme:dark}}}}*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,\"Segoe UI\",sans-serif;text-align:center}}.hd{{background:var(--band);color:#fff;padding:28px 16px 52px}}.hd img{{width:60px;height:60px;display:block;margin:0 auto 8px}}.hd b{{display:block;font-size:17px;font-weight:600}}.sb{{opacity:.85;font-size:13px;overflow-wrap:anywhere}}.cd{{background:var(--card);border-radius:16px;max-width:420px;margin:-28px 12px 24px;padding:20px 14px;box-shadow:0 6px 24px rgba(0,0,0,.18)}}@media(min-width:456px){{.cd{{margin:-28px auto 24px}}}}h1{{font-size:20px;margin:0 0 8px}}p{{margin:8px 0}}.m{{color:var(--mut);font-size:14px}}.dg{{display:flex;gap:6px;justify-content:center;margin:12px 0}}.dg span{{width:34px;height:44px;border-radius:8px;background:var(--cx);display:grid;place-items:center;font:700 22px Consolas,monospace}}.dg i{{width:10px}}.pt b{{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin:0 3px;animation:p 1.2s infinite}}.pt b:nth-child(2){{animation-delay:.2s}}.pt b:nth-child(3){{animation-delay:.4s}}@keyframes p{{0%,80%,100%{{opacity:.25}}40%{{opacity:1}}}}@media(prefers-reduced-motion:reduce){{.pt b{{animation:none;opacity:.7}}}}</style></head><body><div class=\"hd\"><img src=\"/icon.png\" alt=\"\"><b>WhatsApp Lite</b>{sub}</div><div class=\"cd\">{cartao}</div></body></html>"
+        "<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{meta}<title>Zap⁺</title><style>:root{{--bg:#e9edef;--fg:#111b21;--mut:#667781;--card:#fff;--cx:#e9edef;--band:#075e54;--green:#00a884;color-scheme:light}}@media(prefers-color-scheme:dark){{:root{{--bg:#0b141a;--fg:#e9edef;--mut:#8696a0;--card:#111b21;--cx:#0b141a;--band:#0b3d36;--green:#21c063;color-scheme:dark}}}}*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,\"Segoe UI\",sans-serif;text-align:center}}.hd{{background:var(--band);color:#fff;padding:28px 16px 52px}}.hd img{{width:60px;height:60px;display:block;margin:0 auto 8px}}.hd b{{display:block;font-size:17px;font-weight:600}}.sb{{opacity:.85;font-size:13px;overflow-wrap:anywhere}}.cd{{background:var(--card);border-radius:16px;max-width:420px;margin:-28px 12px 24px;padding:20px 14px;box-shadow:0 6px 24px rgba(0,0,0,.18)}}@media(min-width:456px){{.cd{{margin:-28px auto 24px}}}}h1{{font-size:20px;margin:0 0 8px}}p{{margin:8px 0}}.m{{color:var(--mut);font-size:14px}}.dg{{display:flex;gap:6px;justify-content:center;margin:12px 0}}.dg span{{width:34px;height:44px;border-radius:8px;background:var(--cx);display:grid;place-items:center;font:700 22px Consolas,monospace}}.dg i{{width:10px}}.pt b{{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin:0 3px;animation:p 1.2s infinite}}.pt b:nth-child(2){{animation-delay:.2s}}.pt b:nth-child(3){{animation-delay:.4s}}@keyframes p{{0%,80%,100%{{opacity:.25}}40%{{opacity:1}}}}@media(prefers-reduced-motion:reduce){{.pt b{{animation:none;opacity:.7}}}}</style></head><body><div class=\"hd\"><img src=\"/icon.png\" alt=\"\"><b>Zap⁺</b>{sub}</div><div class=\"cd\">{cartao}</div></body></html>"
     );
     let mut r = resp(status, HTML, html);
     r.extra.extend([

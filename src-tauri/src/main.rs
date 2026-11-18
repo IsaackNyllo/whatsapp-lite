@@ -282,7 +282,7 @@ fn create_bubble(app: &AppHandle) -> tauri::Result<()> {
         builder = builder.data_directory(dir);
     }
     let bubble = builder
-        .title("WhatsApp Lite")
+        .title("Zap⁺")
         .inner_size(76.0, 76.0)
         .decorations(false)
         .transparent(true)
@@ -429,7 +429,7 @@ fn set_autostart(on: bool) -> std::io::Result<()> {
     }
 }
 
-/// O que a tela "WhatsApp Lite" mostra. As chaves vêm mascaradas.
+/// O que a tela "Zap⁺" mostra. As chaves vêm mascaradas.
 pub(crate) fn lite_state(app: &AppHandle) -> Value {
     let s = app.state::<Settings>();
     json!({
@@ -536,7 +536,7 @@ pub async fn confirma_com(app: &AppHandle, comando: &str, alvo: &str, on: bool, 
         return Err("Já há uma confirmação aberta na caixa do Windows. Nada mudou.".into());
     }
     let mut caixa = rfd::AsyncMessageDialog::new()
-        .set_title("WhatsApp Lite")
+        .set_title("Zap⁺")
         .set_description(texto)
         .set_level(rfd::MessageLevel::Warning)
         .set_buttons(rfd::MessageButtons::YesNo);
@@ -683,7 +683,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     });
 
     let mut tray = TrayIconBuilder::with_id("main")
-        .tooltip("WhatsApp Lite")
+        .tooltip("Zap⁺")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| {
@@ -703,7 +703,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             if on && event.id() == "mcp" {
                 mcp_listen(app, item);
             }
-            // a tela "WhatsApp Lite", se aberta, mostra o mesmo valor
+            // a tela "Zap⁺", se aberta, mostra o mesmo valor
             eval_in(app, "main", "window.__wlLite && window.__wlLite.refresh()".into());
         })
         .on_tray_icon_event(|tray, event| {
@@ -894,7 +894,7 @@ fn main() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("Erro ao iniciar WhatsApp Lite Desktop")
+        .expect("Erro ao iniciar Zap⁺")
         .run(|app, event| {
             // o túnel de fora fecha junto com o app
             if let tauri::RunEvent::Exit = event {

@@ -1160,7 +1160,7 @@ pub(crate) fn icone(req: &Request) -> Option<(&'static str, &'static [u8])> {
     }
     match req.path.split('?').next()? {
         // página estática só com o <link rel=icon>: os serviços de favicon (Google) leem o HTML da raiz
-        "/" => Some(("text/html; charset=utf-8", b"<!doctype html><html><head><meta charset=utf-8><title>WhatsApp</title><link rel=\"icon\" type=\"image/png\" sizes=\"128x128\" href=\"/icon.png\"><link rel=\"shortcut icon\" href=\"/favicon.ico\"><link rel=\"apple-touch-icon\" href=\"/icon.png\"></head><body>WhatsApp</body></html>")),
+        "/" => Some(("text/html; charset=utf-8", b"<!doctype html><html><head><meta charset=utf-8><title>Zap&#8314;</title><link rel=\"icon\" type=\"image/png\" sizes=\"128x128\" href=\"/icon.png\"><link rel=\"shortcut icon\" href=\"/favicon.ico\"><link rel=\"apple-touch-icon\" href=\"/icon.png\"></head><body>WhatsApp</body></html>")),
         "/icon.png" => Some(("image/png", include_bytes!("../icons/128x128.png"))),
         "/favicon.ico" => Some(("image/x-icon", include_bytes!("../icons/icon.ico"))),
         _ => None,
@@ -1213,7 +1213,7 @@ pub fn rpc(req: &Request, conexao: Acesso, enabled: bool, call: impl Fn(Acesso, 
             let asked = params["protocolVersion"].as_str().unwrap_or("");
             let version = if VERSIONS.contains(&asked) { asked } else { DEFAULT_VERSION };
             // ícone (MCP 2025-11-25: icons[{src, mimeType, sizes}]): rota pública do próprio servidor, no host que o cliente usou
-            let mut info = json!({"name": "whatsapp-lite", "title": "WhatsApp Lite", "version": env!("CARGO_PKG_VERSION")});
+            let mut info = json!({"name": "zap-plus", "title": "Zap⁺", "version": env!("CARGO_PKG_VERSION")});
             if let Some(host) = req.header("host").filter(|h| !h.is_empty() && !h.contains(['/', ' '])) {
                 let esquema = if host.starts_with("127.0.0.1") || host.starts_with("localhost") { "http" } else { "https" };
                 info["icons"] = json!([{"src": format!("{esquema}://{host}/icon.png"), "mimeType": "image/png", "sizes": ["128x128"]}]);

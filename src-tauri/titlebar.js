@@ -81,7 +81,7 @@
         bar.id = ID;
         const title = document.createElement('div');
         title.className = 't';
-        title.textContent = 'WhatsApp Lite';
+        title.textContent = 'Zap⁺';
         // arrastar e duplo clique para maximizar (Tauri trata o atributo)
         title.setAttribute('data-tauri-drag-region', '');
 

@@ -1,4 +1,4 @@
-// Seção "WhatsApp Lite" na tela Configurações do WhatsApp (engrenagem) e as 3 subtelas dela.
+// Seção "Zap⁺" na tela Configurações do WhatsApp (engrenagem) e as 3 subtelas dela.
 // Só mexe dentro de [data-testid="settings-drawer"]: se o WhatsApp mudar a tela e o ponto
 // de inserção sumir, aparece um botão reserva no canto (painel próprio, mesmas telas).
 // As chaves do MCP nunca vêm para a página: a tela recebe só a versão mascarada e o app
@@ -1071,7 +1071,7 @@
     function section() {
         const sec = document.createElement('div');
         sec.id = SEC;
-        sec.innerHTML = group('WhatsApp Lite') + ITEMS.map(([go, t, s]) =>
+        sec.innerHTML = group('Zap⁺') + ITEMS.map(([go, t, s]) =>
             `<button class="wl-item" data-go="${go}">${ICONS[go]}<div class="wl-txt"><div class="wl-t">${t}</div><div class="wl-s">${s}</div></div></button>`).join('') +
             '<div class="wl-sep"></div>';
         sec.addEventListener('click', (e) => {
@@ -1128,8 +1128,8 @@
         addStyle();
         const b = document.createElement('button');
         b.id = FAB;
-        b.textContent = 'WhatsApp Lite';
-        b.title = 'Telas do WhatsApp Lite';
+        b.textContent = 'Zap⁺';
+        b.title = 'Telas do Zap⁺';
         b.addEventListener('click', alternaHost);
         document.body.appendChild(b);
         if (!avisou && window.__wlPopup) {
@@ -1142,7 +1142,7 @@
         if (h) { h.remove(); current = null; return; }
         h = document.createElement('div');
         h.id = HOST;
-        h.innerHTML = `<header><button aria-label="Fechar" title="Fechar">${BACK}</button><div>WhatsApp Lite</div></header>`;
+        h.innerHTML = `<header><button aria-label="Fechar" title="Fechar">${BACK}</button><div>Zap⁺</div></header>`;
         h.querySelector('button').addEventListener('click', alternaHost);
         h.appendChild(section());
         document.body.appendChild(h);

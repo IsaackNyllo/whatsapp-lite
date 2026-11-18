@@ -8,7 +8,7 @@ const $ = (id) => document.getElementById(id);
 const SIZE = { ball: [76, 76], card: [340, 104], notice: [400, 74], reply: [340, 138], opts: [300, 340] };
 const DEFAULTS = { color: '#ffffff', count: true, preview: true, sound: true, seconds: 5 };
 
-// as opções ficam no settings.json do app (a tela "WhatsApp Lite" também muda)
+// as opções ficam no settings.json do app (a tela "Zap⁺" também muda)
 let opts = { ...DEFAULTS };
 
 let unread = 0;
