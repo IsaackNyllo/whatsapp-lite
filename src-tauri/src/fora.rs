@@ -32,6 +32,11 @@ const VIDA_CODIGO: u64 = 300;
 const JANELA: u64 = 600;
 const PEDIDOS_MAX: usize = 5;
 const CLIENTES_MAX: usize = 50;
+/// Endereços de retorno por registro. O Gemini manda 6 (oauth-redirect, -sandbox e -test, em /r/ e /a/);
+/// com teto 5 ele recebia 400 e mostrava "O URL de redirecionamento do Google foi rejeitado pelo servidor".
+const RETORNOS_MAX: usize = 10;
+/// Teto do log de recusas; passou disso, o atual vira .old (um só) e recomeça.
+const LOG_MAX: u64 = 64 * 1024;
 const TOKENS_MAX: usize = 500;
 
 #[derive(Clone)]
@@ -90,6 +95,8 @@ pub struct Fora {
     pedidos: Mutex<Vec<Pedido>>,
     codigos: Mutex<Vec<Codigo>>,
     tokens: Mutex<Vec<Token>>,
+    /// fora-oauth.log (dados locais): as recusas, com motivo e só campos não secretos
+    pub log: Option<std::path::PathBuf>,
 }
 
 pub struct Resp {
@@ -165,7 +172,7 @@ impl Fora {
         let base = self.base.lock().unwrap().clone();
         let Some(base) = base.filter(|_| self.ligado.load(Ordering::Relaxed)) else { return resp(503, JSON, String::new()) };
         let (caminho, query) = req.path.split_once('?').unwrap_or((req.path.as_str(), ""));
-        match (req.method.as_str(), caminho) {
+        let r = match (req.method.as_str(), caminho) {
             ("GET", "/.well-known/oauth-protected-resource" | "/.well-known/oauth-protected-resource/mcp") => resp(
                 200,
                 JSON,
@@ -192,6 +199,23 @@ impl Fora {
             ("POST", "/token") => self.token(req, agora, conexoes, &base),
             (_, "/mcp") => self.mcp(req, agora, conexoes, leitura, &base, call),
             _ => resp(404, JSON, String::new()),
+        };
+        if r.status >= 400 {
+            self.anotar(&linha_log(agora, req, caminho, query, &r));
+        }
+        r
+    }
+
+    /// Acrescenta uma linha ao log de recusas. Passou de LOG_MAX: o atual vira .old e recomeça.
+    fn anotar(&self, linha: &str) {
+        use std::io::Write;
+        let Some(arq) = &self.log else { return };
+        if std::fs::metadata(arq).is_ok_and(|m| m.len() > LOG_MAX) {
+            let _ = std::fs::rename(arq, arq.with_extension("old.log"));
+        }
+        let r = std::fs::OpenOptions::new().create(true).append(true).open(arq).and_then(|mut f| f.write_all(linha.as_bytes()));
+        if let Err(e) = r {
+            eprintln!("Acesso de fora: não gravou o log: {e}");
         }
     }
 
@@ -199,8 +223,8 @@ impl Fora {
     fn registrar(&self, corpo: &[u8], agora: u64) -> Resp {
         let Ok(v) = serde_json::from_slice::<Value>(corpo) else { return erro_oauth(400, "invalid_client_metadata", "JSON inválido") };
         let retornos: Vec<String> = v["redirect_uris"].as_array().into_iter().flatten().filter_map(|u| u.as_str().map(String::from)).collect();
-        if retornos.is_empty() || retornos.len() > 5 || !retornos.iter().all(|u| retorno_ok(u)) {
-            return erro_oauth(400, "invalid_redirect_uri", "Só endereços https://, até 5.");
+        if retornos.is_empty() || retornos.len() > RETORNOS_MAX || !retornos.iter().all(|u| retorno_ok(u)) {
+            return erro_oauth(400, "invalid_redirect_uri", &format!("Só endereços https://, até {RETORNOS_MAX}."));
         }
         let nome = limpa_nome(v["client_name"].as_str().unwrap_or(""));
         let metodo = match v["token_endpoint_auth_method"].as_str() {
@@ -659,6 +683,43 @@ fn montar(status: u16, sub: &str, cartao: &str, recarregar: Option<&str>) -> Res
     r
 }
 
+/// Linha do log de recusa: hora (unix, UTC), status, rota, motivo e só campos não secretos.
+/// Nunca entram código, verificador PKCE, segredo, token, refresh, state nem o id do pedido.
+fn linha_log(agora: u64, req: &Request, caminho: &str, query: &str, r: &Resp) -> String {
+    const PODE: [&str; 13] = [
+        "client_id", "client_name", "redirect_uri", "redirect_uris", "response_type", "response_types", "grant_type", "grant_types",
+        "code_challenge_method", "resource", "scope", "token_endpoint_auth_method", "application_type",
+    ];
+    let mut campos = serde_json::Map::new();
+    let corpo = String::from_utf8_lossy(&req.body);
+    if req.header("content-type").is_some_and(|t| t.contains("json")) {
+        if let Ok(Value::Object(o)) = serde_json::from_str::<Value>(&corpo) {
+            campos.extend(o.into_iter().filter(|(k, _)| PODE.contains(&k.as_str())));
+        }
+    } else {
+        campos.extend(params(&corpo).into_iter().map(|(k, v)| (k, json!(v))).filter(|(k, _)| PODE.contains(&k.as_str())));
+    }
+    campos.extend(params(query).into_iter().map(|(k, v)| (k, json!(v))).filter(|(k, _)| PODE.contains(&k.as_str())));
+    if req.header("authorization").is_some_and(|a| a.starts_with("Basic ")) {
+        campos.insert("auth".into(), json!("basic"));
+    }
+    if let Some(ua) = req.header("user-agent") {
+        campos.insert("user_agent".into(), json!(ua.chars().take(120).collect::<String>()));
+    }
+    let motivo = if r.tipo == JSON {
+        let v: Value = serde_json::from_str(&r.corpo).unwrap_or_default();
+        let e = [&v["error"], &v["error_description"]].iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(": ");
+        if e.is_empty() && r.status == 401 { if req.header("authorization").is_some() { "token inválido".into() } else { "sem token".into() } } else { e }
+    } else {
+        // páginas do celular: "<h1>título</h1><p>texto</p>"
+        r.corpo.split("<h1>").nth(1).and_then(|s| s.split("</p>").next()).unwrap_or("").replace("</h1><p>", ": ")
+    };
+    let mut l = format!("{agora} {} {} {caminho} | {motivo} | {}", r.status, req.method, Value::Object(campos));
+    l = l.chars().filter(|c| !c.is_control()).take(2000).collect();
+    l + "
+"
+}
+
 fn params(s: &str) -> Vec<(String, String)> {
     s.split('&')
         .filter(|p| !p.is_empty())
@@ -1064,8 +1125,21 @@ mod tests {
     #[test]
     fn gemini_nao_gira_e_segredo_confere() {
         let t = T::novo();
-        let g = "https://oauth-redirect.googleusercontent.com/r/projeto";
-        let v = t.registrar(g, "client_secret_post");
+        // registro real do Gemini: 6 retornos (produção, -sandbox e -test, em /r/ e /a/) e client_secret_post.
+        // Com teto 5 dava 400 e o Gemini mostrava "O URL de redirecionamento do Google foi rejeitado pelo servidor".
+        let g = "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-225d815956b8b3c0bd2d5ba4";
+        let seis: Vec<String> = ["/r/", "/a/"]
+            .iter()
+            .flat_map(|c| ["oauth-redirect-sandbox", "oauth-redirect-test", "oauth-redirect"].map(|h| format!("https://{h}.googleusercontent.com{c}user_bound_custom-mcp-225d815956b8b3c0bd2d5ba4")))
+            .collect();
+        let corpo = json!({"client_name": "Google", "redirect_uris": seis, "response_types": ["code"], "grant_types": ["authorization_code", "refresh_token"], "token_endpoint_auth_method": "client_secret_post"});
+        let (s, v) = t.json(req("POST", "/register", &[("content-type", "application/json")], &corpo.to_string()));
+        assert_eq!(s, 201, "{v}");
+        assert_eq!(v["redirect_uris"].as_array().unwrap().len(), 6);
+        assert_eq!(v["token_endpoint_auth_method"], "client_secret_post");
+        assert_eq!(v["client_secret_expires_at"], 0);
+        let onze: Vec<&String> = seis.iter().chain(&seis).take(11).collect();
+        assert_eq!(t.json(req("POST", "/register", &[], &json!({"redirect_uris": onze}).to_string())).0, 400, "teto de 10");
         let (cliente, segredo) = (v["client_id"].as_str().unwrap().to_string(), v["client_secret"].as_str().unwrap().to_string());
         let codigo = t.codigo(&cliente, g);
         let corpo = |c: &str, s: &str| format!("grant_type=authorization_code&code={c}&redirect_uri={}&client_id={cliente}&code_verifier={VERIF}&client_secret={s}", codifica(g));
@@ -1084,6 +1158,40 @@ mod tests {
         let basic = format!("Basic {}", crate::documento::para_base64(format!("{cliente}:{segredo}").as_bytes()));
         let (s, _) = t.json(req("POST", "/token", &[("authorization", &basic)], &format!("grant_type=refresh_token&refresh_token={refresh}")));
         assert_eq!(s, 200);
+    }
+
+    #[test]
+    fn log_de_recusas_sem_segredo() {
+        let dir = std::env::temp_dir().join(format!("wl-teste-fora-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut t = T::novo();
+        t.f.log = Some(dir.join("fora-oauth.log"));
+        let (cliente, token, refresh, _) = t.entrar();
+        let ler = || std::fs::read_to_string(dir.join("fora-oauth.log")).unwrap_or_default();
+        assert_eq!(ler(), "", "fluxo certo não anota nada");
+        t.json(req("POST", "/register", &[("content-type", "application/json"), ("user-agent", "Google-teste")], r#"{"client_name":"Google","redirect_uris":["http://x.com/cb"],"client_secret":"SEGREDO1"}"#));
+        t.json(req("POST", "/token", &[], &format!("grant_type=authorization_code&code=CODIGO1&client_id={cliente}&code_verifier=VERIF1&client_secret=SEGREDO2")));
+        t.json(req("POST", "/token", &[], &format!("grant_type=refresh_token&refresh_token={refresh}x&client_id={cliente}")));
+        t.ir(req("GET", &format!("/authorize?response_type=code&client_id=nao&redirect_uri={}&code_challenge={DESAFIO}&state=ESTADO1", codifica(RETORNO)), &[], ""));
+        t.ir(req("POST", "/mcp", &[("authorization", &format!("Bearer {token}x"))], INIT));
+        t.ir(req("GET", "/.well-known/openid-configuration", &[], ""));
+        let log = ler();
+        for esperado in ["400 POST /register | invalid_redirect_uri", "http://x.com/cb", "Google-teste", "400 POST /token | invalid_grant", "400 GET /authorize | Pedido inválido: App desconhecido", "401 POST /mcp | token inválido", "404 GET /.well-known/openid-configuration"] {
+            assert!(log.contains(esperado), "falta {esperado:?} em:
+{log}");
+        }
+        for segredo in ["SEGREDO", "CODIGO1", "VERIF1", "ESTADO1", DESAFIO, refresh.as_str(), token.as_str()] {
+            assert!(!log.contains(segredo), "vazou {segredo:?}:
+{log}");
+        }
+        assert_eq!(log.lines().count(), 6);
+        // teto: passou de LOG_MAX, o atual vira .old e recomeça
+        std::fs::write(dir.join("fora-oauth.log"), vec![b'x'; LOG_MAX as usize + 1]).unwrap();
+        t.ir(req("GET", "/nada", &[], ""));
+        assert_eq!(ler().lines().count(), 1);
+        assert!(dir.join("fora-oauth.old.log").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

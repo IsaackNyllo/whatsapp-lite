@@ -805,10 +805,11 @@ fn main() {
             app.manage(load_settings(&json));
             app.manage(mcp::Bridge::default());
             // acesso de fora do PC (Fase 10): interruptor salvo, desligado por padrão
-            let fora = fora::Fora::default();
+            let local = app.path().app_local_data_dir().ok();
+            let mut fora = fora::Fora::default();
+            fora.log = local.as_ref().map(|d| d.join("fora-oauth.log"));
             fora.ligado.store(json["fora_on"].as_bool().unwrap_or(false), Ordering::Relaxed);
             app.manage(fora);
-            let local = app.path().app_local_data_dir().ok();
             // conexões do MCP (uma chave por app): a chave única antiga vira a conexão "Claude Code"
             let (conexoes, migrou) = mcp::Conexoes::load(local.clone(), json["mcp_token"].as_str());
             app.manage(conexoes);
