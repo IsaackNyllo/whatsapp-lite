@@ -1159,6 +1159,8 @@ pub(crate) fn icone(req: &Request) -> Option<(&'static str, &'static [u8])> {
         return None;
     }
     match req.path.split('?').next()? {
+        // página estática só com o <link rel=icon>: os serviços de favicon (Google) leem o HTML da raiz
+        "/" => Some(("text/html; charset=utf-8", b"<!doctype html><html><head><meta charset=utf-8><title>WhatsApp</title><link rel=\"icon\" type=\"image/png\" sizes=\"128x128\" href=\"/icon.png\"><link rel=\"shortcut icon\" href=\"/favicon.ico\"><link rel=\"apple-touch-icon\" href=\"/icon.png\"></head><body>WhatsApp</body></html>")),
         "/icon.png" => Some(("image/png", include_bytes!("../icons/128x128.png"))),
         "/favicon.ico" => Some(("image/x-icon", include_bytes!("../icons/icon.ico"))),
         _ => None,
@@ -1546,6 +1548,8 @@ mod tests {
         let get = |p: &str| Request { method: "GET".into(), path: p.into(), headers: vec![], body: vec![] };
         assert!(icone(&get("/icon.png")).unwrap().1.starts_with(&[0x89, b'P', b'N', b'G']));
         assert!(icone(&get("/favicon.ico")).is_some());
+        let (tipo, html) = icone(&get("/")).unwrap();
+        assert!(tipo.starts_with("text/html") && String::from_utf8_lossy(html).contains("rel=\"icon\""));
         assert!(icone(&get("/mcp")).is_none());
         assert!(icone(&Request { method: "POST".into(), ..get("/icon.png") }).is_none());
     }
