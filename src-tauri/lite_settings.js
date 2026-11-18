@@ -959,7 +959,7 @@
             return go('canais');
         }
         if (t.dataset.cp) {
-            const ok = await invoke('mcp_copiar', { id: cur, oque: t.dataset.cp }).catch((e) => String(e));
+            const ok = await invoke('mcp_copiar', { id: cur ?? 0, oque: t.dataset.cp }).catch((e) => String(e));
             const c = conn();
             const what = { endereco: 'Endereço copiado', fora: 'Endereço copiado', chave: 'Chave copiada' }[t.dataset.cp]
                 || (c && (c.tipo === 'codex' || c.tipo === 'outro') ? 'Trecho copiado' : 'Comando copiado');
