@@ -957,6 +957,11 @@ pub(crate) fn read_request(stream: &TcpStream) -> Result<Request, u16> {
         headers.push((name.trim().to_ascii_lowercase(), value.trim().to_string()));
     }
 
+    // corpo em pedaços: o proxy do Tailscale Funnel repassa assim quando o cliente (HTTP/2) não manda Content-Length
+    if headers.iter().any(|(n, v)| n == "transfer-encoding" && v.to_ascii_lowercase().contains("chunked")) {
+        let body = read_chunked(&mut reader)?;
+        return Ok(Request { method, path, headers, body });
+    }
     let len = headers
         .iter()
         .find(|(n, _)| n == "content-length")
@@ -968,6 +973,36 @@ pub(crate) fn read_request(stream: &TcpStream) -> Result<Request, u16> {
     let mut body = vec![0; len];
     reader.read_exact(&mut body).map_err(|_| 400u16)?;
     Ok(Request { method, path, headers, body })
+}
+
+/// `tamanho em hex[;ext]\r\n dados \r\n` ... `0\r\n [trailers] \r\n` (RFC 9112 7.1).
+fn read_chunked(reader: &mut impl BufRead) -> Result<Vec<u8>, u16> {
+    let mut body = Vec::new();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        reader.by_ref().take(MAX_HEAD).read_line(&mut line).map_err(|_| 400u16)?;
+        let hex = line.split(';').next().unwrap_or("").trim();
+        let n = usize::from_str_radix(hex, 16).map_err(|_| 400u16)?;
+        if n == 0 {
+            break;
+        }
+        if body.len() + n > MAX_BODY {
+            return Err(413);
+        }
+        let start = body.len();
+        body.resize(start + n, 0);
+        reader.read_exact(&mut body[start..]).map_err(|_| 400u16)?;
+        let mut crlf = [0u8; 2];
+        reader.read_exact(&mut crlf).map_err(|_| 400u16)?;
+    }
+    // trailers até a linha em branco
+    loop {
+        line.clear();
+        if reader.by_ref().take(MAX_HEAD).read_line(&mut line).map_err(|_| 400u16)? == 0 || line.trim().is_empty() {
+            return Ok(body);
+        }
+    }
 }
 
 const ESCRITA_TOOLS: [&str; 2] = ["listar_canais", "enviar_mensagem"];
@@ -1536,6 +1571,12 @@ mod tests {
         assert_eq!(req.header("authorization"), Some("Bearer t"));
         let big = send(format!("POST /mcp HTTP/1.1\r\nContent-Length: {}\r\n\r\n", MAX_BODY + 1));
         assert_eq!(big.err(), Some(413));
+        // chunked (como o Funnel repassa um pedido HTTP/2 sem Content-Length), com extensão e trailer
+        let req = send("POST /register HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n4;x=1\r\n{\"a\"\r\n3\r\n:1}\r\n0\r\nX-T: 1\r\n\r\n".into()).ok().unwrap();
+        assert_eq!(req.body.as_slice(), &b"{\"a\":1}"[..]);
+        let big = send(format!("POST /mcp HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n", MAX_BODY + 1));
+        assert_eq!(big.err(), Some(413));
+        assert_eq!(send("POST /mcp HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n".into()).err(), Some(400));
     }
 
     fn nomes(le: bool, escreve: bool) -> Vec<String> {
