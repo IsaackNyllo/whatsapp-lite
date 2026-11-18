@@ -298,6 +298,44 @@
         #${VIEW} .wl-ty { flex: none; font: 600 11px Consolas, "Cascadia Mono", monospace; background: var(--wl-code); border-radius: 5px;
             padding: 2px 6px; color: ${MUTED}; }
         #${VIEW} .wl-switch[disabled] { opacity: .45; cursor: default; }
+        /* Mensagens retidas v2: grupos por conversa, uma linha por mensagem */
+        #${VIEW} .wl-btn.sm { height: 28px; padding: 0 12px; font-size: 13px; }
+        #${VIEW} .wl-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+        #${VIEW} .wl-f { border: 1px solid ${LINE}; background: none; color: ${FG}; border-radius: 16px; padding: 4px 12px; font: inherit;
+            font-size: 13px; cursor: pointer; }
+        #${VIEW} .wl-f:hover { background: ${HOVER}; }
+        #${VIEW} .wl-f[aria-pressed="true"] { background: #00a884; border-color: #00a884; color: #fff; }
+        #${VIEW} .wl-grp { border: 1px solid ${LINE}; border-radius: 12px; margin: 10px 0; overflow: hidden; }
+        #${VIEW} .wl-gh { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 14px; background: var(--wl-card); }
+        #${VIEW} .wl-gh b { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
+        #${VIEW} .wl-gc { color: ${MUTED}; font-size: 13px; }
+        #${VIEW} .wl-gb { display: flex; gap: 6px; margin-left: auto; }
+        #${VIEW} .wl-it { border-top: 1px solid ${LINE}; }
+        #${VIEW} .wl-it > .wl-r { display: flex; align-items: flex-start; gap: 12px; width: 100%; box-sizing: border-box; padding: 10px 14px;
+            border: 0; background: none; color: ${FG}; font: inherit; text-align: left; cursor: pointer; }
+        #${VIEW} .wl-it > .wl-r:hover, #${VIEW} .wl-more:hover { background: ${HOVER}; }
+        #${VIEW} .wl-r:focus-visible, #${VIEW} .wl-more:focus-visible, #${VIEW} .wl-f:focus-visible { outline: 2px solid ${FG}; outline-offset: -2px; }
+        #${VIEW} .wl-av2 { flex: none; width: 30px; height: 30px; border-radius: 50%; background: #7a8a94; color: #fff; display: grid;
+            place-items: center; font: 700 12px inherit; }
+        #${VIEW} .wl-m { flex: 1; min-width: 0; }
+        #${VIEW} .wl-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+        #${VIEW} .wl-h b { font-size: 14px; font-weight: 600; }
+        #${VIEW} .wl-h span { color: ${MUTED}; font-size: 12px; }
+        #${VIEW} .wl-h .wl-tag.ia { background: var(--wl-iabg); color: var(--wl-iatx); }
+        #${VIEW} .wl-h .wl-tag.cmd, #${VIEW} .wl-h .wl-tag.sua { background: var(--wl-code); color: ${MUTED}; }
+        #${VIEW} .wl-h .wl-tag.ordem { color: var(--wl-warntx); }
+        #${VIEW} .wl-prev { display: block; margin-top: 3px; color: ${MUTED}; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #${VIEW} .wl-chv { flex: none; color: ${MUTED}; transition: transform .15s; }
+        #${VIEW} .wl-it.open .wl-chv { transform: rotate(90deg); }
+        @media (prefers-reduced-motion: reduce) { #${VIEW} .wl-chv { transition: none; } }
+        #${VIEW} .wl-det { padding: 0 14px 12px 56px; }
+        #${VIEW} .wl-why2 { font-size: 12.5px; color: ${MUTED}; margin: 0 0 6px; }
+        #${VIEW} .wl-why2 b { color: ${FG}; }
+        #${VIEW} .wl-pre { max-height: 180px; overflow: auto; margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--wl-code); color: var(--wl-fg2);
+            font: 12.5px/1.45 Consolas, "Cascadia Mono", monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
+        #${VIEW} .wl-det .wl-act { margin-top: 8px; }
+        #${VIEW} .wl-more { display: block; width: 100%; box-sizing: border-box; padding: 9px 14px; border: 0; border-top: 1px solid ${LINE};
+            background: none; color: ${MUTED}; font: inherit; font-size: 13px; text-align: center; cursor: pointer; }
         @media (max-width: 640px) { #${VIEW} .wl-body { padding: 0 16px 24px; }
             #${VIEW} .wl-chips { flex-direction: column; align-items: flex-end; gap: 4px; } }
     `;
@@ -337,7 +375,7 @@
     let teste = null;     // último "Testar conexão" do Ollama
     // subtela -> tela de onde veio (o Voltar volta para ela)
     const PARENT = { seg: 'mcp', regras: 'seg', recusas: 'seg', nova: 'mcp', pronta: 'mcp', det: 'mcp', renovada: 'det', todas: 'mcp',
-        escrever: 'mcp', canais: 'escrever', addcanal: 'canais', canal: 'canais', envios: 'escrever', audio: 'mcp', midia: 'mcp', docs: 'mcp' };
+        escrever: 'mcp', canais: 'escrever', addcanal: 'canais', canal: 'canais', envios: 'escrever', retidas: 'seg', audio: 'mcp', midia: 'mcp', docs: 'mcp' };
     let canalJid = null;  // canal aberto (tela "canal")
     let escOcupado = false; // campo de limite ou de intervalo sendo salvo
     let midiaOcupado = false;
@@ -346,6 +384,10 @@
     let verEnd = false;   // endereço de fora à mostra (👁 Mostrar); some ao desligar ou fechar a tela
     let deslizar = false; // acabou de ligar o acesso de fora: o bloco do endereço desliza para fora
     let busca = '';       // busca em "Adicionar canal"
+    let fMotivo = 'todas'; // Mensagens retidas: filtro por motivo (todas | ordem | cmd | sua | ia)
+    let retAberta = null; // índice (em fil.retidas) da mensagem aberta; só uma por vez
+    let retGrupo = {};    // conversas com "mostrar" aberto (todas as mensagens, não só as 3 primeiras)
+    let retGrupos = new Map(); // conversa -> [[retida, índice]] do último desenho (vale para Liberar/Apagar todas)
     const abertas = {};   // seções recolhidas abertas ("Como a IA vê")
     let current = null;   // subtela aberta
     let cur = null;       // id da conexão aberta (det, pronta, renovada)
@@ -396,6 +438,28 @@
         const [, m, dd] = d.split('-');
         return dd + '/' + m + ' ' + hm;
     }
+    // Mensagens retidas: [filtro, etiqueta] pelo motivo guardado ("Regra: <categoria>" ou "IA local: ...")
+    const MOTIVO = (r) => {
+        const m = r.motivo || '', c = m.startsWith('Regra: ') ? m.slice(7) : '';
+        if (!c) return ['ia', 'pela IA local'];
+        if (c === 'Ordem a uma IA') return ['ordem', 'ordem para IA'];
+        if (c === 'Frase de ataque') return ['ordem', 'frase de ataque'];
+        if (c === 'Comando de computador') return ['cmd', 'comando de computador'];
+        if (c === 'Banco de dados') return ['cmd', 'banco de dados'];
+        return ['sua', 'sua regra'];
+    };
+    const PORQUE = (r) => {
+        const m = r.motivo || '', c = m.startsWith('Regra: ') ? m.slice(7) : '';
+        if (!c) return 'a <b>IA local</b> achou que parece ordem ou comando.';
+        if (c === 'Ordem a uma IA') return 'parece uma <b>ordem dada a uma IA</b> (nome de IA e um pedido).';
+        if (c === 'Frase de ataque') return 'tem uma <b>frase de ataque a IA</b> (tentar mudar ou ler as instruções dela).';
+        if (c === 'Comando de computador') return 'tem um <b>comando de computador</b>.';
+        if (c === 'Banco de dados') return 'tem um <b>comando de banco de dados</b>.';
+        return 'bateu na <b>sua regra</b> “' + esc(c.replace(/^sua · /, '')) + '”.';
+    };
+    const iniciais = (a) => String(a || '').replace(/^[~@]+/, '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => Array.from(w)[0]).join('').toUpperCase() || '?';
+    const FILTROS = [['todas', 'Todas'], ['ordem', 'Ordem para IA'], ['cmd', 'Comando / banco de dados'], ['sua', 'Suas regras'], ['ia', 'Pela IA local']];
+    const plural = (n, a, b) => n + ' ' + (n === 1 ? a : b);
     const ollamaOk = () => (teste ? teste.ok : fil && fil.ollama);
 
     // ---- conexões do MCP ----
@@ -653,16 +717,10 @@
                 (state.filtro_ia ? `<div class="wl-status ${ok ? '' : ok === false ? 'bad' : 'off'}"><i></i>${ok ? 'Ollama ligado neste computador'
                     : ok === false ? (teste && /modelo/.test(teste.erro) ? 'O Ollama não tem o modelo gemma4:e4b: só as regras estão valendo' : 'IA local fechada: só as regras estão valendo')
                     : 'Procurando o Ollama…'}</div>` : '') +
-                nav('list', 'Minhas regras', fil.minhas.length ? `${tx} ${tx === 1 ? 'palavra' : 'palavras'} e ${rx} ${rx === 1 ? 'expressão' : 'expressões'}` : 'Nenhuma: valem as regras prontas', 'regras') +
+                nav('list', 'Minhas regras', (fil.minhas.length ? `${tx} ${tx === 1 ? 'palavra' : 'palavras'} e ${rx} ${rx === 1 ? 'expressão' : 'expressões'}` : 'Nenhuma: valem as regras prontas') + (fil.excecoes && fil.excecoes.length ? ` · ${plural(fil.excecoes.length, 'exceção', 'exceções')} por conversa` : ''), 'regras') +
                 row('Avisar na bolinha quando reter', 'Mostra "1 mensagem retida" quando algo for guardado', sw('filtro_avisar', state.filtro_avisar, 'Avisar na bolinha quando reter')) +
                 '</div>' +
-                group(`Mensagens retidas (${n})`) +
-                dica('retidas', '<b>Liberar não executa nada.</b> O app nunca executa comando de mensagem. Liberar só deixa a IA <b>ler</b> a mensagem nas próximas leituras. Até lá, a IA vê apenas <code>[mensagem retida para revisão] Carlos, 14:32</code>, sem o texto.') +
-                (n ? fil.retidas.map((r, i) =>
-                    `<div class="wl-card"><div class="wl-head"><b>${esc(r.conversa)}</b><span>${esc(r.autor)}</span><span>${esc(quando(r.hora))}</span><span class="wl-why${r.motivo.startsWith('IA') ? ' ia' : ''}">${esc(r.motivo)}</span></div>
-                      <div class="wl-msg">${esc(r.texto)}</div>
-                      <div class="wl-act"><button class="wl-btn" data-lib="${i}">Liberar</button><button class="wl-btn wl-danger" data-del="${i}">Apagar</button></div></div>`).join('')
-                    : `<div class="wl-empty">${CHECK}<div style="margin-top:8px">Nada retido. As mensagens com cara de comando aparecem aqui.</div></div>`) +
+                nav('shield', 'Mensagens retidas', n ? `${plural(n, 'mensagem', 'mensagens')} em ${plural(new Set(fil.retidas.map((r) => r.conv || r.conversa)).size, 'conversa', 'conversas')}` : 'Nenhuma retida', 'retidas') +
                 group('Acesso') +
                 nav('clock', 'Registro de recusas de login', 'Tentativas de fora que foram barradas', 'recusas') +
                 group('Avisos de leitura') +
@@ -672,6 +730,38 @@
                 NPOS.map(([id, name]) =>
                     `<div class="wl-choice${state.notice_win && state.mcp_notify ? '' : ' wl-fade'}" role="radio" tabindex="0" aria-checked="${state.notice_pos === id}" data-npos="${id}"><div class="wl-lbl" style="margin:0;padding:0"><i></i><span style="flex:1">${name}</span><button class="wl-btn" data-nsee="${id}">Ver na tela</button></div></div>`).join('') +
                 `<div class="wl-bubble"><i style="background:#fff">${APP_ICONS.gemini.replace(/(width|height)="34"/g, '$1="22"')}</i><div><div class="wl-n">Gemini CLI leu Grupo da firma (exemplo)</div><div class="wl-m">402 mensagens</div></div></div>`;
+        }],
+        retidas: ['Mensagens retidas', () => {
+            const todas = fil.retidas.map((r, i) => [r, i]);
+            const cont = { todas: todas.length };
+            todas.forEach(([r]) => { const k = MOTIVO(r)[0]; cont[k] = (cont[k] || 0) + 1; });
+            if (!cont[fMotivo]) fMotivo = 'todas';
+            const lista = todas.filter(([r]) => fMotivo === 'todas' || MOTIVO(r)[0] === fMotivo);
+            retGrupos = new Map();
+            lista.forEach((x) => { const k = x[0].conv || x[0].conversa; if (!retGrupos.has(k)) retGrupos.set(k, []); retGrupos.get(k).push(x); });
+            const linha = ([r, i]) => {
+                const [k, et] = MOTIVO(r), aberta = retAberta === i;
+                const det = aberta ? `<div class="wl-det"><div class="wl-why2">Retida porque ${PORQUE(r)}</div><div class="wl-pre">${esc(r.texto)}</div>
+                    <div class="wl-act"><button class="wl-btn sm" data-lib="${i}">Liberar</button>${r.excecao ? `<button class="wl-btn sm" data-sempre="${i}">Liberar e não reter mais desta conversa</button>` : ''}<button class="wl-btn sm wl-danger" data-del="${i}">Apagar</button></div>${r.excecao ? '' : '<div class="wl-why2" style="margin-top:6px">Para este motivo não existe exceção por conversa: a checagem sempre vale.</div>'}</div>` : '';
+                return `<div class="wl-it${aberta ? ' open' : ''}"><button class="wl-r" data-abre="${i}" aria-expanded="${aberta}"><span class="wl-av2" aria-hidden="true">${esc(iniciais(r.autor))}</span>
+                    <span class="wl-m"><span class="wl-h"><b>${esc(r.autor)}</b><span>${esc(quando(r.hora))}</span><span class="wl-tag ${k}">${et}</span></span>${aberta ? '' : `<span class="wl-prev">${esc(String(r.texto).replace(/\s+/g, ' ').slice(0, 200))}</span>`}</span>
+                    <span class="wl-chv" aria-hidden="true">›</span></button>${det}</div>`;
+            };
+            const grupo = ([g, xs]) => {
+                const todos = !!retGrupo[g], vis = todos ? xs : xs.filter((x, j) => j < 3 || x[1] === retAberta), resto = xs.length - vis.length;
+                const ets = new Set(xs.map(([r]) => MOTIVO(r)[1]));
+                const cnt = plural(xs.length, 'retida', 'retidas') + (xs.length > 1 && ets.size === 1 ? ` · todas “${[...ets][0]}”` : '');
+                return `<div class="wl-grp"><div class="wl-gh"><b>${esc(xs[0][0].conversa)}</b><span class="wl-gc">${cnt}</span>
+                    <span class="wl-gb"><button class="wl-btn sm" data-lote="liberar" data-g="${esc(g)}">Liberar todas</button><button class="wl-btn sm wl-danger" data-lote="apagar" data-g="${esc(g)}">Apagar todas</button></span></div>` +
+                    vis.map(linha).join('') +
+                    (resto > 0 ? `<button class="wl-more" data-mostra="${esc(g)}">+ ${plural(resto, 'mensagem', 'mensagens')} · mostrar</button>`
+                        : todos && xs.length > 3 ? `<button class="wl-more" data-mostra="${esc(g)}">mostrar menos</button>` : '') + '</div>';
+            };
+            return dica('retidas', '<b>Liberar não executa nada.</b> O app nunca executa comando de mensagem. Liberar só deixa a IA <b>ler</b> a mensagem nas próximas leituras. Até lá, a IA vê apenas <code>[mensagem retida para revisão] Carlos, 14:32</code>, sem o texto.') +
+                (todas.length ? `<div class="wl-s" style="padding:4px 0">${plural(todas.length, 'mensagem', 'mensagens')} em ${plural(new Set(fil.retidas.map((r) => r.conv || r.conversa)).size, 'conversa', 'conversas')}. A IA não vê o texto delas até você liberar.</div>
+                    <div class="wl-filters" role="group" aria-label="Filtrar por motivo">${FILTROS.filter(([k]) => cont[k]).map(([k, n]) => `<button class="wl-f" data-filtro="${k}" aria-pressed="${fMotivo === k}">${n} ${cont[k]}</button>`).join('')}</div>` +
+                    [...retGrupos].map(grupo).join('')
+                    : `<div class="wl-empty">${CHECK}<div style="margin-top:8px">Nada retido. As mensagens com cara de comando aparecem aqui.</div></div>`);
         }],
         recusas: ['Registro de recusas de login', () => {
             const l = state.recusas || [];
@@ -686,6 +776,9 @@
             fil.minhas.map((r, i) => `<div class="wl-rule"><span class="wl-k">${r.tipo === 'regex' ? 'Padrão' : 'Texto'}</span><code>${esc(r.v)}</code><button class="wl-x" data-rm="${i}" aria-label="Remover regra" title="Remover regra">${X}</button></div>`).join('') +
             `<div class="wl-add"><select class="wl-tipo" aria-label="Tipo"><option value="texto">Texto</option><option value="regex">Padrão (regex)</option></select>
               <input class="wl-novo" placeholder="Ex.: transfira tudo" aria-label="Nova regra" maxlength="200"><button class="wl-btn" data-act="add">Adicionar</button></div>` +
+            (fil.excecoes && fil.excecoes.length ? group('Exceções por conversa') +
+                '<div class="wl-s" style="padding:0 0 6px">Nestas conversas a categoria indicada não retém mais. Ordem para IA, frase de ataque e IA local nunca têm exceção. Tire aqui para voltar a reter.</div>' +
+                fil.excecoes.map((e, i) => `<div class="wl-rule"><span class="wl-k">Exceção</span><code>${esc(e.nome)} · ${esc(e.cat)}</code><button class="wl-x" data-exc="${i}" aria-label="Tirar exceção" title="Tirar exceção">${X}</button></div>`).join('') : '') +
             group('Testar uma frase') +
             '<div class="wl-test"><input class="wl-frase" placeholder="Digite uma frase para ver se seria retida" aria-label="Frase de teste"><div class="wl-verdict"></div></div>'],
         audio: ['Transcrever áudios', () => {
@@ -791,6 +884,7 @@
             });
             drawer.appendChild(el);
         }
+        if (name === 'retidas' && current !== 'retidas') { fMotivo = 'todas'; retAberta = null; retGrupo = {}; }
         current = name;
         asking = null;
         [state, fil] = await Promise.all([invoke('lite_get'), invoke('filtro_get')]);
@@ -1013,14 +1107,34 @@
                 || (c && (c.tipo === 'codex' || c.tipo === 'outro') ? 'Trecho copiado' : 'Comando copiado');
             return toast(ok === true ? what : ok || 'Não deu para copiar. Tente de novo.');
         }
-        if (t.dataset.lib || t.dataset.del) {
-            const r = fil.retidas[+(t.dataset.lib || t.dataset.del)];
-            if (!r) return;
-            const novo = await invoke('filtro_acao', { id: r.id, acao: t.dataset.lib ? 'liberar' : 'apagar' }).catch((e) => { toast(String(e)); return null; });
+        if (t.dataset.abre) { const i = +t.dataset.abre; retAberta = retAberta === i ? null : i; return render(); }
+        if (t.dataset.mostra) { retGrupo[t.dataset.mostra] = !retGrupo[t.dataset.mostra]; return render(); }
+        if (t.dataset.filtro) { fMotivo = t.dataset.filtro; retAberta = null; return render(); }
+        if (t.dataset.lote) {
+            const ids = (retGrupos.get(t.dataset.g) || []).map(([r]) => r.id);
+            if (!ids.length) return;
+            const novo = await invoke('filtro_lote', { ids, acao: t.dataset.lote }).catch((e) => { toast(String(e)); return null; });
             if (!novo) return;
-            fil = novo;
+            fil = novo; retAberta = null; render();
+            return toast(t.dataset.lote === 'liberar' ? 'Liberadas: a IA passa a ver essas mensagens' : 'Apagadas. Continuam escondidas da IA');
+        }
+        if (t.dataset.lib || t.dataset.del || t.dataset.sempre) {
+            const r = fil.retidas[+(t.dataset.lib || t.dataset.del || t.dataset.sempre)];
+            if (!r) return;
+            const acao = t.dataset.lib ? 'liberar' : t.dataset.sempre ? 'liberar_sempre' : 'apagar';
+            const novo = await invoke('filtro_acao', { id: r.id, acao }).catch((e) => { toast(String(e)); return null; });
+            if (!novo) return;
+            fil = novo; retAberta = null;
             render();
-            return toast(t.dataset.lib ? 'Liberada: a IA passa a ver essa mensagem' : 'Apagada. Continua escondida da IA');
+            return toast(acao === 'apagar' ? 'Apagada. Continua escondida da IA' : acao === 'liberar' ? 'Liberada: a IA passa a ver essa mensagem'
+                : 'Liberada. Esta categoria não retém mais nesta conversa');
+        }
+        if (t.dataset.exc) {
+            const e = (fil.excecoes || [])[+t.dataset.exc];
+            if (!e) return;
+            const novo = await invoke('filtro_excecao', { conv: e.conv, cat: e.cat }).catch((x) => { toast(String(x)); return null; });
+            if (novo) { fil = novo; toast('Exceção tirada: volta a reter nesta conversa'); }
+            return render();
         }
         if (t.dataset.rm) {
             const novo = await invoke('filtro_minhas', { regras: fil.minhas.filter((_, i) => i !== +t.dataset.rm) }).catch((e) => { toast(String(e)); return null; });

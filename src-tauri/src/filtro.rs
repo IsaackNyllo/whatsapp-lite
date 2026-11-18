@@ -58,8 +58,36 @@ struct Retida {
     estado: String,
 }
 
+/// "Não reter mais desta conversa": vale só para a categoria que reteve a mensagem, naquela conversa.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+struct Excecao {
+    /// identificador da conversa (o jid que vem dentro do id da mensagem), não o nome: renomear um grupo não herda a exceção
+    conv: String,
+    /// nome na hora de criar, só para a tela
+    nome: String,
+    /// categoria da regra ("Banco de dados", "Comando de computador" ou "sua · ...")
+    cat: String,
+}
+
+/// Só estas categorias aceitam exceção. "Ordem a uma IA", "Frase de ataque" e a IA local nunca: a checagem
+/// de injeção de prompt não se desliga por conversa (um grupo pode ser tomado ou renomeado por outra pessoa).
+fn cat_permitida(cat: &str) -> bool {
+    cat == "Comando de computador" || cat == "Banco de dados" || cat.starts_with("sua · ")
+}
+
+/// Id da mensagem = "<fromMe>_<jid da conversa>_<id>[_<autor>]" (a citação e o pedaço de documento seguem igual).
+fn conv_de(id: &str) -> Option<&str> {
+    id.split('_').nth(1).filter(|j| j.contains('@') && !j.contains('#'))
+}
+
+/// "Regra: Banco de dados" -> "Banco de dados"; a IA local não tem categoria.
+fn cat_de(motivo: &str) -> Option<&str> {
+    motivo.strip_prefix("Regra: ")
+}
+
 struct Dados {
     dir: Option<PathBuf>,
+    excecoes: Vec<Excecao>,
     /// resultado da IA local por mensagem (true = retida); arquivo filtro-ia.txt, uma linha por mensagem
     ia: HashMap<String, bool>,
     retidas: Vec<Retida>,
@@ -88,7 +116,8 @@ impl Filtro {
             .map(|(v, k)| (k.to_string(), v == "1"))
             .collect();
         let retidas = serde_json::from_str(&ler("filtro-retidas.json")).unwrap_or_default();
-        Filtro { dados: Mutex::new(Dados { dir, ia, retidas }), fila: Mutex::new(Vec::new()), ollama: AtomicU8::new(0) }
+        let excecoes = serde_json::from_str(&ler("filtro-excecoes.json")).unwrap_or_default();
+        Filtro { dados: Mutex::new(Dados { dir, excecoes, ia, retidas }), fila: Mutex::new(Vec::new()), ollama: AtomicU8::new(0) }
     }
 }
 
@@ -99,6 +128,42 @@ impl Dados {
         if let Err(e) = r {
             eprintln!("Filtro: não salvou as retidas: {e}");
         }
+    }
+
+    fn salvar_excecoes(&self) {
+        let Some(dir) = &self.dir else { return };
+        let r = fs::create_dir_all(dir).and_then(|_| fs::write(dir.join("filtro-excecoes.json"), serde_json::to_string(&self.excecoes).unwrap_or_default()));
+        if let Err(e) = r {
+            eprintln!("Filtro: não salvou as exceções: {e}");
+        }
+    }
+
+    /// A regra vale para esta mensagem? Não, se a conversa tem exceção para a categoria (e a categoria aceita).
+    fn regra_efetiva<'a>(&self, it: &'a Item) -> Option<&'a str> {
+        let r = it.regra.as_deref().filter(|r| !r.is_empty())?;
+        let cat: String = r.chars().take(80).collect();
+        let isenta = cat_permitida(&cat) && conv_de(&it.id).is_some_and(|c| self.excecoes.iter().any(|e| e.conv == c && e.cat == cat));
+        (!isenta).then_some(r)
+    }
+
+    /// Libera ou apaga as retidas dos ids (só as que ainda estão "retida"); devolve quantas mudaram.
+    fn aplicar_lote(&mut self, ids: &[String], acao: &str) -> usize {
+        let mut n = 0;
+        for r in self.retidas.iter_mut().filter(|r| r.estado == "retida" && ids.contains(&r.id)) {
+            match acao {
+                "liberar" => r.estado = "liberada".into(),
+                "apagar" => {
+                    r.estado = "apagada".into();
+                    r.texto.clear();
+                }
+                _ => continue,
+            }
+            n += 1;
+        }
+        if n > 0 {
+            self.salvar_retidas();
+        }
+        n
     }
 
     fn anotar_ia(&mut self, novos: &[(String, bool)]) {
@@ -144,7 +209,7 @@ pub fn verificar(app: &AppHandle, itens: Vec<Item>, ia: bool) -> Value {
                 }
                 continue;
             }
-            if let Some(regra) = it.regra.as_deref().filter(|r| !r.is_empty()) {
+            if let Some(regra) = d.regra_efetiva(&it) {
                 let motivo = format!("Regra: {}", regra.chars().take(80).collect::<String>());
                 d.reter(&it, k, motivo);
                 retidas.push(it.id);
@@ -335,11 +400,17 @@ pub fn filtro_fila(app: AppHandle, itens: Vec<Item>) {
 }
 
 /// O que a tela "Filtro de mensagens" mostra. A IA (MCP) não tem nenhum caminho até aqui.
+/// Cada retida ganha `conv` (jid da conversa: agrupa e vale para o lote) e `excecao` (a categoria aceita "não reter mais").
 #[tauri::command]
 pub fn filtro_get(app: AppHandle) -> Value {
     let filtro = app.state::<Filtro>();
     let d = filtro.dados.lock().unwrap();
-    let lista: Vec<&Retida> = d.retidas.iter().rev().filter(|r| r.estado == "retida").collect();
+    let lista: Vec<Value> = d.retidas.iter().rev().filter(|r| r.estado == "retida").map(|r| {
+        let mut v = serde_json::to_value(r).unwrap_or_default();
+        v["conv"] = json!(conv_de(&r.id).unwrap_or(""));
+        v["excecao"] = json!(conv_de(&r.id).is_some() && cat_de(&r.motivo).is_some_and(cat_permitida));
+        v
+    }).collect();
     let ollama = match filtro.ollama.load(Ordering::Relaxed) {
         1 => json!(true),
         2 => json!(false),
@@ -347,24 +418,37 @@ pub fn filtro_get(app: AppHandle) -> Value {
     };
     json!({
         "retidas": lista, "verificadas": d.ia.len(), "fila": filtro.fila.lock().unwrap().len(), "ollama": ollama,
-        "minhas": *app.state::<crate::Settings>().filtro_minhas.lock().unwrap(),
+        "minhas": *app.state::<crate::Settings>().filtro_minhas.lock().unwrap(), "excecoes": d.excecoes,
     })
 }
 
-/// Liberar (a IA passa a ler) ou apagar (some da lista e continua escondida da IA). Nunca executa nada.
-/// Liberar uma retida pede "Sim" na caixa do Windows (`crate::confirma`).
+/// Liberar (a IA passa a ler), "liberar_sempre" (libera e cria a exceção da conversa para a categoria que reteve)
+/// ou apagar (some da lista e continua escondida da IA). Nunca executa nada.
+/// Liberar pede "Sim" na caixa do Windows (`crate::confirma`); a exceção, com o nome da conversa e a categoria na caixa.
 #[tauri::command]
 pub async fn filtro_acao(app: AppHandle, id: String, acao: String) -> Result<Value, String> {
-    let existe = app.state::<Filtro>().dados.lock().unwrap().retidas.iter().any(|r| r.id == id && r.estado == "retida");
-    if existe {
-        crate::confirma(&app, "filtro_acao", &acao, false).await?;
+    let alvo = app.state::<Filtro>().dados.lock().unwrap().retidas.iter()
+        .find(|r| r.id == id && r.estado == "retida").map(|r| (r.conversa.clone(), r.motivo.clone()));
+    let mut excecao = None;
+    if let Some((conversa, motivo)) = alvo {
+        if acao == "liberar_sempre" {
+            let (Some(conv), Some(cat)) = (conv_de(&id), cat_de(&motivo).filter(|c| cat_permitida(c))) else {
+                return Err("Esta mensagem não aceita exceção por conversa (ordem para IA, frase de ataque e IA local sempre valem). Nada mudou.".into());
+            };
+            let nome: String = conversa.chars().filter(|c| !c.is_control()).take(60).collect();
+            let detalhe = format!("\n\nConversa: {nome}\nCategoria: {cat}");
+            crate::confirma_com(&app, "filtro_acao", &acao, false, &detalhe).await?;
+            excecao = Some(Excecao { conv: conv.into(), nome, cat: cat.into() });
+        } else {
+            crate::confirma(&app, "filtro_acao", &acao, false).await?;
+        }
     }
     {
         let filtro = app.state::<Filtro>();
         let mut d = filtro.dados.lock().unwrap();
         if let Some(r) = d.retidas.iter_mut().find(|r| r.id == id) {
             match acao.as_str() {
-                "liberar" => r.estado = "liberada".into(),
+                "liberar" | "liberar_sempre" => r.estado = "liberada".into(),
                 "apagar" => {
                     r.estado = "apagada".into();
                     r.texto.clear(); // o texto não fica guardado à toa
@@ -373,8 +457,43 @@ pub async fn filtro_acao(app: AppHandle, id: String, acao: String) -> Result<Val
             }
             d.salvar_retidas();
         }
+        if let Some(e) = excecao.filter(|e| !d.excecoes.contains(e)) {
+            d.excecoes.truncate(199); // ponytail: teto simples de 200; passou, a mais antiga sai
+            d.excecoes.push(e);
+            d.salvar_excecoes();
+        }
     }
     Ok(filtro_get(app))
+}
+
+/// Liberar todas ou apagar todas as retidas de uma conversa: `ids` são as que a tela mostra no grupo. Sempre pede a caixa Sim/Não.
+#[tauri::command]
+pub async fn filtro_lote(app: AppHandle, ids: Vec<String>, acao: String) -> Result<Value, String> {
+    if acao != "liberar" && acao != "apagar" {
+        return Err("Ação desconhecida. Nada mudou.".into());
+    }
+    let n = app.state::<Filtro>().dados.lock().unwrap().retidas.iter().filter(|r| r.estado == "retida" && ids.contains(&r.id)).count();
+    if n > 0 {
+        crate::confirma_com(&app, "filtro_lote", &acao, false, &format!("\n\n{n} {}.", if n == 1 { "mensagem" } else { "mensagens" })).await?;
+        let filtro = app.state::<Filtro>();
+        filtro.dados.lock().unwrap().aplicar_lote(&ids, &acao);
+    }
+    Ok(filtro_get(app))
+}
+
+/// Tira uma exceção por conversa (a categoria volta a reter ali). Só aumenta a proteção: sem caixa.
+#[tauri::command]
+pub fn filtro_excecao(app: AppHandle, conv: String, cat: String) -> Value {
+    {
+        let filtro = app.state::<Filtro>();
+        let mut d = filtro.dados.lock().unwrap();
+        let antes = d.excecoes.len();
+        d.excecoes.retain(|e| !(e.conv == conv && e.cat == cat));
+        if d.excecoes.len() != antes {
+            d.salvar_excecoes();
+        }
+    }
+    filtro_get(app)
 }
 
 /// Regras do usuário: [{tipo: "texto"|"regex", v}]. Fica no settings.json.
@@ -424,6 +543,70 @@ pub async fn filtro_ollama(app: AppHandle) -> Value {
 mod tests {
     use super::*;
     use std::net::TcpListener;
+
+    fn item(id: &str, regra: Option<&str>) -> Item {
+        serde_json::from_value(json!({ "id": id, "texto": "x", "regra": regra, "conversa": "Grupo", "autor": "Ana", "hora": "2026-11-18 10:00" })).unwrap()
+    }
+    fn retida(id: &str, motivo: &str) -> Retida {
+        Retida { id: id.into(), conversa: "Grupo".into(), autor: "Ana".into(), hora: "2026-11-18 10:00".into(), texto: "SELECT 1;".into(), motivo: motivo.into(), estado: "retida".into() }
+    }
+
+    /// Exceção por conversa: vale só para a categoria e para o jid daquela conversa; ordem para IA nunca.
+    #[test]
+    fn excecao_por_conversa() {
+        assert_eq!(conv_de("false_1203@g.us_3EB0_5511@c.us#00ff"), Some("1203@g.us"));
+        assert_eq!(conv_de("msg2"), None);
+        assert_eq!(conv_de("a_semarroba_b"), None);
+        assert_eq!(cat_de("Regra: Banco de dados"), Some("Banco de dados"));
+        assert_eq!(cat_de("IA local: parece ordem ou comando"), None);
+        for c in ["Banco de dados", "Comando de computador", "sua · transfira tudo"] {
+            assert!(cat_permitida(c), "{c}");
+        }
+        for c in ["Ordem a uma IA", "Frase de ataque", "", "IA local"] {
+            assert!(!cat_permitida(c), "{c}");
+        }
+        let mut d = Dados { dir: None, excecoes: vec![], ia: HashMap::new(), retidas: vec![] };
+        let banco = item("false_1203@g.us_A1", Some("Banco de dados"));
+        let ordem = item("false_1203@g.us_A2", Some("Ordem a uma IA"));
+        assert_eq!(d.regra_efetiva(&banco), Some("Banco de dados"));
+        d.excecoes.push(Excecao { conv: "1203@g.us".into(), nome: "Grupo".into(), cat: "Banco de dados".into() });
+        assert_eq!(d.regra_efetiva(&banco), None, "isenta na conversa da exceção");
+        assert_eq!(d.regra_efetiva(&item("false_1203@g.us_A3_5511@c.us", Some("Banco de dados"))), None, "autor no fim do id não muda a conversa");
+        assert_eq!(d.regra_efetiva(&item("false_9999@g.us_A1", Some("Banco de dados"))), Some("Banco de dados"), "outra conversa continua retida");
+        assert_eq!(d.regra_efetiva(&item("false_1203@g.us_A4", Some("Comando de computador"))), Some("Comando de computador"), "outra categoria continua");
+        assert_eq!(d.regra_efetiva(&ordem), Some("Ordem a uma IA"), "ordem para IA nunca é isenta");
+        // exceção escrita à mão no arquivo para ordem para IA também não vale
+        d.excecoes.push(Excecao { conv: "1203@g.us".into(), nome: "Grupo".into(), cat: "Ordem a uma IA".into() });
+        assert_eq!(d.regra_efetiva(&ordem), Some("Ordem a uma IA"));
+        assert_eq!(d.regra_efetiva(&item("false_1203@g.us_A5", None)), None);
+    }
+
+    /// Lote: só muda as retidas dos ids; apagar limpa o texto; persiste e volta ao abrir (inclusive as exceções).
+    #[test]
+    fn lote_e_persistencia() {
+        let dir = std::env::temp_dir().join(format!("zap-filtro-teste-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let mut d = Dados { dir: Some(dir.clone()), excecoes: vec![], ia: HashMap::new(),
+            retidas: vec![retida("false_1@g.us_a#1", "Regra: Banco de dados"), retida("false_1@g.us_b#2", "Regra: Banco de dados"),
+                retida("false_2@g.us_c#3", "IA local: parece ordem ou comando")] };
+        let ids = vec!["false_1@g.us_a#1".to_string(), "false_1@g.us_b#2".to_string(), "inexistente".to_string()];
+        assert_eq!(d.aplicar_lote(&ids, "apagar"), 2);
+        assert!(d.retidas[0].estado == "apagada" && d.retidas[0].texto.is_empty() && d.retidas[1].estado == "apagada");
+        assert_eq!(d.retidas[2].estado, "retida", "a de outra conversa não muda");
+        assert_eq!(d.aplicar_lote(&ids, "apagar"), 0, "já apagadas: nada a fazer");
+        assert_eq!(d.aplicar_lote(&["false_2@g.us_c#3".to_string()], "liberar"), 1);
+        assert_eq!(d.retidas[2].estado, "liberada");
+        assert_eq!(d.aplicar_lote(&["false_2@g.us_c#3".to_string()], "outra"), 0);
+        d.excecoes.push(Excecao { conv: "1@g.us".into(), nome: "Grupo".into(), cat: "Banco de dados".into() });
+        d.salvar_excecoes();
+        let f = Filtro::load(Some(dir.clone()));
+        let d2 = f.dados.lock().unwrap();
+        assert_eq!(d2.retidas.len(), 3);
+        assert!(d2.retidas.iter().map(|r| r.estado.as_str()).eq(["apagada", "apagada", "liberada"]));
+        assert_eq!(d2.excecoes, d.excecoes);
+        drop(d2);
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn valida_a_resposta_da_ia() {

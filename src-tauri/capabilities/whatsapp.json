@@ -35,6 +35,8 @@
     "allow-filtro-fila",
     "allow-filtro-get",
     "allow-filtro-acao",
+    "allow-filtro-lote",
+    "allow-filtro-excecao",
     "allow-filtro-minhas",
     "allow-filtro-ollama",
     "allow-audio-ler",

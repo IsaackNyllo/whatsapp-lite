@@ -273,6 +273,12 @@
           "markdownDescription": "Enables the filtro_acao command without any pre-configured scope."
         },
         {
+          "description": "Enables the filtro_excecao command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-filtro-excecao",
+          "markdownDescription": "Enables the filtro_excecao command without any pre-configured scope."
+        },
+        {
           "description": "Enables the filtro_fila command without any pre-configured scope.",
           "type": "string",
           "const": "allow-filtro-fila",
@@ -283,6 +289,12 @@
           "type": "string",
           "const": "allow-filtro-get",
           "markdownDescription": "Enables the filtro_get command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the filtro_lote command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-filtro-lote",
+          "markdownDescription": "Enables the filtro_lote command without any pre-configured scope."
         },
         {
           "description": "Enables the filtro_minhas command without any pre-configured scope.",
@@ -465,6 +477,12 @@
           "markdownDescription": "Denies the filtro_acao command without any pre-configured scope."
         },
         {
+          "description": "Denies the filtro_excecao command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-filtro-excecao",
+          "markdownDescription": "Denies the filtro_excecao command without any pre-configured scope."
+        },
+        {
           "description": "Denies the filtro_fila command without any pre-configured scope.",
           "type": "string",
           "const": "deny-filtro-fila",
@@ -475,6 +493,12 @@
           "type": "string",
           "const": "deny-filtro-get",
           "markdownDescription": "Denies the filtro_get command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the filtro_lote command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-filtro-lote",
+          "markdownDescription": "Denies the filtro_lote command without any pre-configured scope."
         },
         {
           "description": "Denies the filtro_minhas command without any pre-configured scope.",

@@ -582,6 +582,9 @@ fn lite_get(app: AppHandle) -> Value {
 fn aviso(comando: &str, alvo: &str, on: bool) -> Option<&'static str> {
     Some(match (comando, alvo, on) {
         ("filtro_acao", "liberar", _) => "Liberar a mensagem retida para a IA?\n\nA IA conectada passa a ler essa mensagem nas próximas leituras. Nada é executado.",
+        ("filtro_acao", "liberar_sempre", _) => "Liberar e não reter mais desta conversa?\n\nA IA passa a ler esta mensagem. Daqui para frente, nesta conversa, mensagens da MESMA categoria (abaixo) não são mais retidas. As outras categorias continuam valendo. Você tira a exceção em Minhas regras.",
+        ("filtro_lote", "liberar", _) => "Liberar todas as mensagens retidas desta conversa?\n\nA IA conectada passa a ler essas mensagens nas próximas leituras. Nada é executado.",
+        ("filtro_lote", "apagar", _) => "Apagar todas as mensagens retidas desta conversa?\n\nSomem da lista e o texto não fica guardado. Continuam escondidas da IA.",
         ("filtro_minhas", "remover", _) => "Remover regra do filtro?\n\nO que essa regra segurava passa a chegar à IA.",
         ("lite_set", "filtro_ia", false) => "Desligar a verificação por IA local?\n\nSó as regras continuam valendo: o filtro fica mais fraco.",
         ("lite_set", "mcp_notify", false) => "Desligar o aviso quando uma IA ler?\n\nVocê deixa de ver quando um app lê suas conversas.",
@@ -962,6 +965,8 @@ fn main() {
             filtro::filtro_fila,
             filtro::filtro_get,
             filtro::filtro_acao,
+            filtro::filtro_lote,
+            filtro::filtro_excecao,
             filtro::filtro_minhas,
             filtro::filtro_ollama,
             transcricao::audio_ler,
@@ -1052,6 +1057,10 @@ mod tests {
         let pede = [
             ("filtro_acao", "liberar", false),
             ("filtro_minhas", "remover", false),
+            // Mensagens retidas v2: exceção por conversa e lote (liberar e apagar)
+            ("filtro_acao", "liberar_sempre", false),
+            ("filtro_lote", "liberar", false),
+            ("filtro_lote", "apagar", false),
             ("lite_set", "filtro_ia", false),
             ("lite_set", "mcp_notify", false),
             ("lite_set", "notice_win", false),
@@ -1083,6 +1092,8 @@ mod tests {
         let livre = [
             ("filtro_acao", "apagar", false),
             ("filtro_minhas", "adicionar", false),
+            // tirar uma exceção só aumenta a proteção
+            ("filtro_excecao", "tirar", false),
             ("lite_set", "filtro_ia", true),
             ("lite_set", "mcp_notify", true),
             ("lite_set", "notice_win", true),
@@ -1140,7 +1151,7 @@ mod tests {
         }
         // cada comando sensível chama a caixa antes de mexer em algo
         let fontes = [include_str!("main.rs"), include_str!("mcp.rs"), include_str!("filtro.rs"), include_str!("fora.rs")].concat();
-        for cmd in ["lite_set", "mcp_conexao", "mcp_copiar", "mcp_escrita", "filtro_acao", "filtro_minhas", "mcp_fora"] {
+        for cmd in ["lite_set", "mcp_conexao", "mcp_copiar", "mcp_escrita", "filtro_acao", "filtro_lote", "filtro_minhas", "mcp_fora"] {
             let corpo = fontes.split(&format!("async fn {cmd}(")).nth(1).unwrap_or_else(|| panic!("{cmd} não é async"));
             let corpo = corpo.split("\n}").next().unwrap(); // fim da função (mcp.rs e filtro.rs têm CRLF)
             assert!(

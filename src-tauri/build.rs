@@ -27,6 +27,8 @@ const COMMANDS: &[&str] = &[
     "filtro_fila",
     "filtro_get",
     "filtro_acao",
+    "filtro_lote",
+    "filtro_excecao",
     "filtro_minhas",
     "filtro_ollama",
     "audio_ler",
