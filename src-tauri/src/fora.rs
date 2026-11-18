@@ -628,36 +628,33 @@ fn esc(s: &str) -> String {
 }
 
 fn esperando(id: &str, nome: &str, numero: &str) -> Resp {
-    let corpo = format!(
-        "O <b>{}</b> pediu para ler o seu WhatsApp.<div class=\"spin\"></div><p>Confirme no seu PC.</p><div class=\"m\">Código</div><div class=\"code\">{}</div><div class=\"m\">Confira se é o mesmo código que aparece no PC.</div>",
-        esc(nome),
-        esc(numero)
+    // 6 dígitos em caixinhas, 3 + 3 (o número vem como "776 241")
+    let digitos: String = numero.chars().map(|c| if c == ' ' { "<i></i>".to_string() } else { format!("<span>{}</span>", esc(&c.to_string())) }).collect();
+    let cartao = format!(
+        "<p class=\"m\">Confira este código no seu PC</p><div class=\"dg\">{digitos}</div><p>Aguardando o Sim <span class=\"pt\"><b></b><b></b><b></b></span></p><p class=\"m\">Só leitura. Você muda isso depois em Conexões.</p>"
     );
-    pagina(200, "WhatsApp Lite", &corpo, Some(&format!("/authorize/espera?p={id}")))
+    montar(200, &format!("Pedido de acesso do {}", esc(nome)), &cartao, Some(&format!("/authorize/espera?p={id}")))
 }
 
-/// Página do celular (sem script: recarrega por meta refresh). `corpo` já vem escapado.
+/// Página do celular de texto simples. `corpo` já vem escapado.
 fn pagina(status: u16, titulo: &str, corpo: &str, recarregar: Option<&str>) -> Resp {
+    montar(status, "", &format!("<h1>{}</h1><p>{corpo}</p>", esc(titulo)), recarregar)
+}
+
+/// Moldura da página do celular (sem script: recarrega por meta refresh): faixa verde com o ícone + cartão.
+/// `sub` e `cartao` já vêm escapados. O ícone é a rota pública /icon.png do próprio servidor.
+fn montar(status: u16, sub: &str, cartao: &str, recarregar: Option<&str>) -> Resp {
     let meta = recarregar.map_or(String::new(), |u| format!("<meta http-equiv=\"refresh\" content=\"2;url={}\">", esc(u)));
-    let corpo = if titulo == "WhatsApp Lite" { corpo.to_string() } else { format!("<p>{corpo}</p>") };
+    let sub = if sub.is_empty() { String::new() } else { format!("<div class=\"sb\">{sub}</div>") };
     let html = format!(
-        "<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{meta}<title>WhatsApp Lite</title><style>\
-:root{{--bg:#fff;--fg:#111b21;--mut:#667781;--green:#00a884;--line:#e1e4e6;color-scheme:light}}\
-@media(prefers-color-scheme:dark){{:root{{--bg:#161717;--fg:#e9edef;--mut:#a5a7a7;--green:#21c063;--line:#2c2e2e;color-scheme:dark}}}}\
-body{{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,\"Segoe UI\",sans-serif;text-align:center;padding:40px 20px}}\
-.lg{{width:56px;height:56px;border-radius:14px;background:var(--green);margin:0 auto 12px;display:grid;place-items:center;color:#fff;font-size:26px;font-weight:700}}\
-.m{{color:var(--mut);font-size:14px;margin-top:8px}}.code{{font:700 28px Consolas,monospace;letter-spacing:.2em;margin:6px 0}}\
-.spin{{width:24px;height:24px;border:3px solid var(--line);border-top-color:var(--green);border-radius:50%;margin:20px auto;animation:g 1s linear infinite}}\
-@keyframes g{{to{{transform:rotate(360deg)}}}}@media(prefers-reduced-motion:reduce){{.spin{{animation:none}}}}\
-</style></head><body><div class=\"lg\">W</div><h1 style=\"font-size:20px;margin:0 0 8px\">{}</h1>{corpo}</body></html>",
-        esc(titulo)
+        "<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{meta}<title>WhatsApp Lite</title><style>:root{{--bg:#e9edef;--fg:#111b21;--mut:#667781;--card:#fff;--cx:#e9edef;--band:#075e54;--green:#00a884;color-scheme:light}}@media(prefers-color-scheme:dark){{:root{{--bg:#0b141a;--fg:#e9edef;--mut:#8696a0;--card:#111b21;--cx:#0b141a;--band:#0b3d36;--green:#21c063;color-scheme:dark}}}}*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,\"Segoe UI\",sans-serif;text-align:center}}.hd{{background:var(--band);color:#fff;padding:28px 16px 52px}}.hd img{{width:60px;height:60px;display:block;margin:0 auto 8px}}.hd b{{display:block;font-size:17px;font-weight:600}}.sb{{opacity:.85;font-size:13px;overflow-wrap:anywhere}}.cd{{background:var(--card);border-radius:16px;max-width:420px;margin:-28px 12px 24px;padding:20px 14px;box-shadow:0 6px 24px rgba(0,0,0,.18)}}@media(min-width:456px){{.cd{{margin:-28px auto 24px}}}}h1{{font-size:20px;margin:0 0 8px}}p{{margin:8px 0}}.m{{color:var(--mut);font-size:14px}}.dg{{display:flex;gap:6px;justify-content:center;margin:12px 0}}.dg span{{width:34px;height:44px;border-radius:8px;background:var(--cx);display:grid;place-items:center;font:700 22px Consolas,monospace}}.dg i{{width:10px}}.pt b{{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin:0 3px;animation:p 1.2s infinite}}.pt b:nth-child(2){{animation-delay:.2s}}.pt b:nth-child(3){{animation-delay:.4s}}@keyframes p{{0%,80%,100%{{opacity:.25}}40%{{opacity:1}}}}@media(prefers-reduced-motion:reduce){{.pt b{{animation:none;opacity:.7}}}}</style></head><body><div class=\"hd\"><img src=\"/icon.png\" alt=\"\"><b>WhatsApp Lite</b>{sub}</div><div class=\"cd\">{cartao}</div></body></html>"
     );
     let mut r = resp(status, HTML, html);
     r.extra.extend([
         ("Cache-Control", "no-store".to_string()),
         ("Referrer-Policy", "no-referrer".to_string()),
         ("X-Content-Type-Options", "nosniff".to_string()),
-        ("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'".to_string()),
+        ("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'".to_string()),
     ]);
     r
 }
@@ -979,7 +976,7 @@ mod tests {
         let (r, caixa) = t.autorizar(&cliente, RETORNO, DESAFIO);
         let (pedido, nome, numero, host) = caixa.unwrap();
         assert_eq!((nome.as_str(), host.as_str(), numero.len()), ("Claude", "claude.ai", 7));
-        assert!(r.corpo.contains(&numero) && r.corpo.contains("Confirme no seu PC") && r.corpo.contains("http-equiv=\"refresh\""));
+        assert!(r.corpo.contains(&format!("<span>{}</span>", &numero[..1])) && numero.len() == 7 && r.corpo.contains("Confira este código no seu PC") && r.corpo.contains("http-equiv=\"refresh\""));
         // enquanto espera: a mesma página; outro pedido no meio tempo é recusado (um de cada vez)
         let espera = format!("/authorize/espera?p={pedido}");
         assert_eq!(t.ir(req("GET", &espera, &[], "")).0.status, 200);
