@@ -47,9 +47,67 @@ struct Settings {
     /// teto de imagens que a IA abre por resumo (Fase 19): fotos e GIFs/figurinhas à parte, 0 a 200
     midia_fotos: AtomicU64,
     midia_anim: AtomicU64,
+    /// Conectores de IA v2: áudio mais longo (min), "Transcrever ao chegar", "Baixar imagens que não foram baixadas",
+    /// tipos que ver_documento abre, teto do texto (KB) e filtro ligado. Padrão = como era antes, menos Texto e
+    /// PowerPoint, que nascem desmarcados (pedido do Isaack).
+    audio_min: AtomicU64,
+    audio_chegar: AtomicBool,
+    midia_baixar: AtomicBool,
+    doc_pdf: AtomicBool,
+    doc_docx: AtomicBool,
+    doc_xlsx: AtomicBool,
+    doc_texto: AtomicBool,
+    doc_pptx: AtomicBool,
+    doc_kb: AtomicU64,
+    filtro_on: AtomicBool,
 }
 
-const MIDIA_MAX: u64 = 200;
+/// Campos numéricos da tela (lite_midia): nome, mínimo, máximo e padrão. O Rust recusa o que sair da faixa.
+const FAIXAS: [(&str, u64, u64, u64); 4] = [("fotos", 0, 200, 50), ("anim", 0, 200, 20), ("audio_min", 1, 60, 10), ("doc_kb", 5, 500, 50)];
+/// Tipos de documento (opção `doc_<tipo>`), na ordem da tela.
+const DOC_TIPOS: [&str; 5] = ["pdf", "docx", "xlsx", "texto", "pptx"];
+
+fn faixa(qual: &str) -> Option<(u64, u64, u64)> {
+    FAIXAS.iter().find(|f| f.0 == qual).map(|f| (f.1, f.2, f.3))
+}
+
+/// Valor salvo dentro da faixa; fora dela (arquivo editado à mão) ou sem valor: o padrão.
+fn na_faixa(json: &Value, chave: &str, qual: &str) -> u64 {
+    let (min, max, padrao) = faixa(qual).unwrap();
+    json[chave].as_u64().filter(|n| (min..=max).contains(n)).unwrap_or(padrao)
+}
+
+/// Recusa o número fora da faixa do campo.
+fn valida(qual: &str, n: u64) -> Result<(), String> {
+    let (min, max, _) = faixa(qual).ok_or("Opção desconhecida.")?;
+    if (min..=max).contains(&n) { Ok(()) } else { Err(format!("Valor inválido: use um número inteiro de {min} a {max}. Nada mudou.")) }
+}
+
+impl Settings {
+    fn doc(&self, tipo: &str) -> Option<&AtomicBool> {
+        Some(match tipo {
+            "pdf" => &self.doc_pdf,
+            "docx" => &self.doc_docx,
+            "xlsx" => &self.doc_xlsx,
+            "texto" => &self.doc_texto,
+            "pptx" => &self.doc_pptx,
+            _ => return None,
+        })
+    }
+}
+
+/// Tetos, tipos e opções que a página usa nas ferramentas e que as descrições do MCP mostram.
+pub(crate) fn limites(s: &Settings) -> Value {
+    let tipos: Vec<&str> = DOC_TIPOS.into_iter().filter(|t| s.doc(t).is_some_and(|f| f.load(Ordering::Relaxed))).collect();
+    json!({
+        "fotos": s.midia_fotos.load(Ordering::Relaxed),
+        "anim": s.midia_anim.load(Ordering::Relaxed),
+        "baixar": s.midia_baixar.load(Ordering::Relaxed),
+        "tipos": tipos,
+        "kb": s.doc_kb.load(Ordering::Relaxed),
+        "audio_min": s.audio_min.load(Ordering::Relaxed),
+    })
+}
 
 /// Itens da bandeja que a tela de configurações também muda.
 struct TrayItems {
@@ -215,8 +273,18 @@ fn load_settings(json: &Value) -> Settings {
         filtro_minhas: Mutex::new(if json["filtro_minhas"].is_array() { json["filtro_minhas"].clone() } else { json!([]) }),
         dicas_fechadas: Mutex::new(dicas_clean(&json["dicas_fechadas"])),
         audio_on: flag("audio_on", false),
-        midia_fotos: AtomicU64::new(json["midia_fotos"].as_u64().filter(|n| *n <= MIDIA_MAX).unwrap_or(50)),
-        midia_anim: AtomicU64::new(json["midia_anim"].as_u64().filter(|n| *n <= MIDIA_MAX).unwrap_or(20)),
+        midia_fotos: AtomicU64::new(na_faixa(json, "midia_fotos", "fotos")),
+        midia_anim: AtomicU64::new(na_faixa(json, "midia_anim", "anim")),
+        audio_min: AtomicU64::new(na_faixa(json, "audio_min", "audio_min")),
+        audio_chegar: flag("audio_chegar", true),
+        midia_baixar: flag("midia_baixar", true),
+        doc_pdf: flag("doc_pdf", true),
+        doc_docx: flag("doc_docx", true),
+        doc_xlsx: flag("doc_xlsx", true),
+        doc_texto: flag("doc_texto", false),
+        doc_pptx: flag("doc_pptx", false),
+        doc_kb: AtomicU64::new(na_faixa(json, "doc_kb", "doc_kb")),
+        filtro_on: flag("filtro_on", true),
     }
 }
 
@@ -250,8 +318,19 @@ fn save_settings(app: &AppHandle) {
         "audio_on": settings.audio_on.load(Ordering::Relaxed),
         "midia_fotos": settings.midia_fotos.load(Ordering::Relaxed),
         "midia_anim": settings.midia_anim.load(Ordering::Relaxed),
+        "audio_min": settings.audio_min.load(Ordering::Relaxed),
+        "audio_chegar": settings.audio_chegar.load(Ordering::Relaxed),
+        "midia_baixar": settings.midia_baixar.load(Ordering::Relaxed),
+        "doc_pdf": settings.doc_pdf.load(Ordering::Relaxed),
+        "doc_docx": settings.doc_docx.load(Ordering::Relaxed),
+        "doc_xlsx": settings.doc_xlsx.load(Ordering::Relaxed),
+        "doc_texto": settings.doc_texto.load(Ordering::Relaxed),
+        "doc_pptx": settings.doc_pptx.load(Ordering::Relaxed),
+        "doc_kb": settings.doc_kb.load(Ordering::Relaxed),
+        "filtro_on": settings.filtro_on.load(Ordering::Relaxed),
         "fora_on": app.state::<fora::Fora>().ligado.load(Ordering::Relaxed),
     });
+    *mcp::LIMITES.lock().unwrap() = limites(&settings);
     let result = path
         .parent()
         .map_or(Ok(()), fs::create_dir_all)
@@ -453,22 +532,33 @@ pub(crate) fn lite_state(app: &AppHandle) -> Value {
         "audio": app.state::<transcricao::Transcricao>().visao(s.audio_on.load(Ordering::Relaxed)),
         "midia_fotos": s.midia_fotos.load(Ordering::Relaxed),
         "midia_anim": s.midia_anim.load(Ordering::Relaxed),
+        "audio_min": s.audio_min.load(Ordering::Relaxed),
+        "audio_chegar": s.audio_chegar.load(Ordering::Relaxed),
+        "midia_baixar": s.midia_baixar.load(Ordering::Relaxed),
+        "doc_pdf": s.doc_pdf.load(Ordering::Relaxed),
+        "doc_docx": s.doc_docx.load(Ordering::Relaxed),
+        "doc_xlsx": s.doc_xlsx.load(Ordering::Relaxed),
+        "doc_texto": s.doc_texto.load(Ordering::Relaxed),
+        "doc_pptx": s.doc_pptx.load(Ordering::Relaxed),
+        "doc_kb": s.doc_kb.load(Ordering::Relaxed),
+        "filtro_on": s.filtro_on.load(Ordering::Relaxed),
         "fora": app.state::<fora::Fora>().estado(),
+        "recusas": app.state::<fora::Fora>().recusas(20),
     })
 }
 
-/// Teto de imagens por resumo (`fotos` ou `anim`), de 0 a 200. Custo, não poder: sem caixa (assumido).
+/// Campos numéricos da tela: teto de imagens por resumo (`fotos`, `anim`: 0 a 200), áudio mais longo (`audio_min`:
+/// 1 a 60 min) e tamanho máximo do texto dos documentos (`doc_kb`: 5 a 500 KB). Custo, não poder: sem caixa (assumido).
 #[tauri::command]
 fn lite_midia(app: AppHandle, qual: String, n: u64) -> Result<Value, String> {
+    valida(&qual, n)?;
     let s = app.state::<Settings>();
     let alvo = match qual.as_str() {
         "fotos" => &s.midia_fotos,
         "anim" => &s.midia_anim,
-        _ => return Err("Opção desconhecida.".into()),
+        "audio_min" => &s.audio_min,
+        _ => &s.doc_kb,
     };
-    if n > MIDIA_MAX {
-        return Err(format!("Valor inválido: use um número inteiro de 0 a {MIDIA_MAX}. Nada mudou."));
-    }
     alvo.store(n, Ordering::Relaxed);
     save_settings(&app);
     Ok(lite_state(&app))
@@ -498,6 +588,7 @@ fn aviso(comando: &str, alvo: &str, on: bool) -> Option<&'static str> {
         ("lite_set", "notice_win", false) => "Desligar o aviso de leitura na janela?\n\nCom a janela aberta, você deixa de ver quando um app lê suas conversas.",
         ("lite_set", "filtro_avisar", false) => "Desligar o aviso de mensagem retida?\n\nVocê deixa de ver quando o filtro segura uma mensagem.",
         ("lite_set", "audio_on", true) => "Transcrever os áudios das suas conversas?\n\nCada áudio que chegar, e os dos últimos 7 dias de todas as conversas e grupos, é baixado e transformado em texto neste computador (em segundo plano, um por vez). O áudio não sai do PC. O texto fica guardado no app e as conexões com \"Pode ler\" passam a ler o que foi falado.",
+        ("lite_set", "filtro_on", false) => "Desligar o filtro de mensagens?\n\nNada mais é retido: a IA passa a ler também as mensagens que parecem ordens para ela ou comandos de computador. As que já estão retidas continuam escondidas.",
         ("lite_set", "mcp_enabled", true) => "Permitir que IAs leiam suas conversas?\n\nAs conexões com \"Pode ler\" passam a ver todas as suas conversas neste computador.",
         // escrever (Fase 15): tudo que aumenta o poder da IA; desligar, tirar canal e descer o limite seguem sem caixa
         ("mcp_escrita", "ligar", true) => "Permitir que IAs enviem mensagens pelo seu WhatsApp?\n\nElas só poderão escrever texto, nos canais da lista, e só nas conexões em que você ligar \"Pode escrever\".",
@@ -567,6 +658,10 @@ async fn lite_set(app: AppHandle, key: String, on: bool) -> Result<Value, String
         "filtro_ia" => (&s.filtro_ia, None),
         "filtro_avisar" => (&s.filtro_avisar, None),
         "audio_on" => (&s.audio_on, None),
+        "audio_chegar" => (&s.audio_chegar, None),
+        "midia_baixar" => (&s.midia_baixar, None),
+        "filtro_on" => (&s.filtro_on, None),
+        k if k.strip_prefix("doc_").and_then(|t| s.doc(t)).is_some() => (s.doc(&k[4..]).unwrap(), None),
         "autostart" => {
             if let Err(e) = set_autostart(on) {
                 eprintln!("Erro ao mudar o início com o Windows: {}", e);
@@ -803,6 +898,7 @@ fn main() {
         .setup(|app| {
             let json = read_settings(app.handle());
             app.manage(load_settings(&json));
+            *mcp::LIMITES.lock().unwrap() = limites(&app.state::<Settings>());
             app.manage(mcp::Bridge::default());
             // acesso de fora do PC (Fase 10): interruptor salvo, desligado por padrão
             let local = app.path().app_local_data_dir().ok();
@@ -924,6 +1020,31 @@ mod tests {
         assert!(handler.len() >= 22);
     }
 
+    // Conectores v2: faixas no Rust (a tela não é confiável), padrão = como era, tipos de documento
+    #[test]
+    fn faixas_padroes_e_tipos() {
+        use super::*;
+        use serde_json::json;
+        // padrão: nada muda para quem não mexeu (Texto e PowerPoint nascem desmarcados, como pedido)
+        let s = load_settings(&json!({}));
+        assert_eq!(limites(&s), json!({"fotos": 50, "anim": 20, "baixar": true, "tipos": ["pdf", "docx", "xlsx"], "kb": 50, "audio_min": 10}));
+        assert!(s.audio_chegar.load(Ordering::Relaxed) && s.filtro_on.load(Ordering::Relaxed));
+        // arquivo editado à mão: fora da faixa volta ao padrão; dentro, vale
+        let s = load_settings(&json!({"audio_min": 0, "doc_kb": 501, "midia_fotos": 201, "midia_anim": -1}));
+        assert_eq!(limites(&s), json!({"fotos": 50, "anim": 20, "baixar": true, "tipos": ["pdf", "docx", "xlsx"], "kb": 50, "audio_min": 10}));
+        let s = load_settings(&json!({"audio_min": 60, "doc_kb": 5, "midia_fotos": 0, "midia_baixar": false,
+            "doc_pdf": false, "doc_texto": true, "doc_pptx": true}));
+        assert_eq!(limites(&s), json!({"fotos": 0, "anim": 20, "baixar": false, "tipos": ["docx", "xlsx", "texto", "pptx"], "kb": 5, "audio_min": 60}));
+        // a tela manda qualquer número: só a faixa passa
+        for (q, ok, ruins) in [("fotos", [0, 200], [201, 999]), ("anim", [0, 200], [201, 1000]), ("audio_min", [1, 60], [0, 61]), ("doc_kb", [5, 500], [4, 501])] {
+            for n in ok { assert!(valida(q, n).is_ok(), "{q} {n}"); }
+            for n in ruins { assert!(valida(q, n).unwrap_err().contains("Nada mudou"), "{q} {n}"); }
+        }
+        assert!(valida("outro", 1).is_err());
+        // só os 5 tipos têm opção (doc_exe não existe)
+        assert!(DOC_TIPOS.iter().all(|t| s.doc(t).is_some()) && s.doc("exe").is_none() && s.doc("zip").is_none());
+    }
+
     // as 7 ações sensíveis pedem a caixa Sim/Não; o resto (ligar avisos, pausar, apagar, aparência...) não
     #[test]
     fn caixa_sim_nao_nas_acoes_sensiveis() {
@@ -953,6 +1074,8 @@ mod tests {
             ("mcp_conexao", "docs_on", true),
             // Fase 10: abrir o acesso de fora do PC
             ("mcp_fora", "ligar", true),
+            // Conectores v2: desligar o filtro de mensagens enfraquece a proteção
+            ("lite_set", "filtro_on", false),
         ];
         for (c, a, on) in pede {
             assert!(aviso(c, a, on).is_some(), "{c} {a} {on} tem de pedir");
@@ -1003,6 +1126,14 @@ mod tests {
             ("mcp_fora", "ligar", false),
             ("mcp_conexao", "renovar_fora", false),
             ("mcp_copiar", "fora", false),
+            // Conectores v2: ligar de volta, tipos de documento, opções de custo (assumido: sem caixa)
+            ("lite_set", "filtro_on", true),
+            ("lite_set", "audio_chegar", true),
+            ("lite_set", "midia_baixar", true),
+            ("lite_set", "doc_texto", true),
+            ("lite_set", "doc_pptx", true),
+            ("lite_midia", "audio_min", true),
+            ("lite_midia", "doc_kb", true),
         ];
         for (c, a, on) in livre {
             assert!(aviso(c, a, on).is_none(), "{c} {a} {on} não pede");

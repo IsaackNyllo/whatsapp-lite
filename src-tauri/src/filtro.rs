@@ -304,7 +304,7 @@ pub fn esteira(app: AppHandle) {
     thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(15));
         let s = app.state::<crate::Settings>();
-        if !s.mcp_enabled.load(Ordering::Relaxed) || !s.filtro_ia.load(Ordering::Relaxed) {
+        if !s.mcp_enabled.load(Ordering::Relaxed) || !s.filtro_ia.load(Ordering::Relaxed) || !s.filtro_on.load(Ordering::Relaxed) {
             continue;
         }
         let lote: Vec<Item> = {
@@ -325,11 +325,11 @@ pub async fn filtro_verificar(app: AppHandle, itens: Vec<Item>, ia: bool) -> Val
     r.unwrap_or_else(|_| json!({ "erro": true }))
 }
 
-/// Mensagens novas da página entram na fila da esteira (descartadas se a IA local está desligada).
+/// Mensagens novas da página entram na fila da esteira (descartadas se a IA local ou o filtro estão desligados).
 #[tauri::command]
 pub fn filtro_fila(app: AppHandle, itens: Vec<Item>) {
     let s = app.state::<crate::Settings>();
-    if s.mcp_enabled.load(Ordering::Relaxed) && s.filtro_ia.load(Ordering::Relaxed) {
+    if s.mcp_enabled.load(Ordering::Relaxed) && s.filtro_ia.load(Ordering::Relaxed) && s.filtro_on.load(Ordering::Relaxed) {
         enfileirar(&app.state::<Filtro>(), itens.into_iter());
     }
 }

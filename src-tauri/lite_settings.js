@@ -241,7 +241,7 @@
         #${VIEW} .wl-dt .wl-app { width: 34px; height: 34px; }
         /* escrever (Fase 15) e dicas com X */
         #${VIEW} .wl-state.w { background: var(--wl-iabg); color: var(--wl-iatx); }
-        #${VIEW} .wl-fora { flex: none; font-size: 11px; padding: 1px 8px; border-radius: 8px; background: var(--wl-warnbg); color: var(--wl-warntx); white-space: nowrap; }
+        #${VIEW} .wl-tag { flex: none; font-size: 11px; padding: 1px 8px; border-radius: 8px; background: var(--wl-warnbg); color: var(--wl-warntx); white-space: nowrap; }
         #${VIEW} .wl-pill.g { background: #00a884; color: #fff; }
         #${VIEW} .wl-tip { display: flex; gap: 8px; align-items: flex-start; }
         #${VIEW} .wl-tip > div { flex: 1; min-width: 0; }
@@ -277,6 +277,27 @@
         #${VIEW} .wl-hist .wl-q.wl-no { max-width: 55%; }
         #${VIEW} .wl-canal { min-width: 0; overflow-wrap: anywhere; }
         #${VIEW} .wl-chips { display: flex; gap: 6px; flex: none; }
+        /* Conectores de IA v2 */
+        #${VIEW} .wl-ext { color: ${MUTED}; font-size: 13px; font-weight: 400; }
+        #${VIEW} .wl-ajuda { width: 20px; height: 20px; box-sizing: border-box; margin-left: 6px; padding: 0; border-radius: 50%;
+            border: 1.5px solid ${MUTED}; background: none; color: ${MUTED}; font: 700 11px/1 inherit; cursor: pointer;
+            display: inline-grid; place-items: center; vertical-align: 1px; }
+        #${VIEW} .wl-ajuda:hover, #${VIEW} .wl-ajuda[aria-expanded="true"] { color: ${FG}; border-color: ${FG}; }
+        #${VIEW} .wl-ajuda:focus-visible { outline: 2px solid ${FG}; outline-offset: 2px; }
+        #${VIEW} .wl-desliza { margin-left: 4px; border-left: 2px solid ${LINE}; padding-left: 14px; overflow: hidden; max-height: 0;
+            opacity: 0; transform: translateY(-8px); transition: max-height .35s ease, opacity .25s ease, transform .3s ease; }
+        #${VIEW} .wl-desliza.on { max-height: 420px; opacity: 1; transform: none; }
+        @media (prefers-reduced-motion: reduce) { #${VIEW} .wl-desliza { transition: none; } }
+        #${VIEW} .wl-addr { display: flex; gap: 8px; align-items: center; background: var(--wl-code); border-radius: 10px;
+            padding: 6px 6px 6px 12px; margin: 0 0 10px; }
+        #${VIEW} .wl-addr code { flex: 1; min-width: 0; font: 13px Consolas, "Cascadia Mono", monospace; color: var(--wl-fg2);
+            overflow-wrap: anywhere; }
+        #${VIEW} .wl-un { color: ${MUTED}; font-size: 14px; }
+        #${VIEW} .wl-chk { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid ${LINE}; cursor: pointer; }
+        #${VIEW} .wl-chk input { flex: none; width: 18px; height: 18px; margin: 0; accent-color: #00a884; cursor: pointer; }
+        #${VIEW} .wl-ty { flex: none; font: 600 11px Consolas, "Cascadia Mono", monospace; background: var(--wl-code); border-radius: 5px;
+            padding: 2px 6px; color: ${MUTED}; }
+        #${VIEW} .wl-switch[disabled] { opacity: .45; cursor: default; }
         @media (max-width: 640px) { #${VIEW} .wl-body { padding: 0 16px 24px; }
             #${VIEW} .wl-chips { flex-direction: column; align-items: flex-end; gap: 4px; } }
     `;
@@ -287,8 +308,8 @@
         mcp: svg('<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/>'),
         aplicativo: svg('<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/>'),
         list: svg('<path d="M5 6h14M5 12h14M5 18h9"/>'),
-        ai: svg('<rect x="5" y="7" width="14" height="11" rx="3"/><path d="M12 3v4M9 12h.01M15 12h.01M9 15h6"/>'),
-        inbox: svg('<path d="M4 13l2-7h12l2 7v5H4zM4 13h5l1 2h4l1-2h5"/>'),
+        doc: svg('<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>'),
+        shield: svg('<path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/>'),
         pen: svg('<path d="M4 20l1-4L16 5l3 3L8 19zM14 7l3 3"/>'),
         gauge: svg('<path d="M4 16a8 8 0 1 1 16 0M12 16l4-5"/>'),
         clock: svg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>'),
@@ -315,12 +336,15 @@
     let fil = null;       // filtro_get: retidas, regras do usuário, contadores da esteira
     let teste = null;     // último "Testar conexão" do Ollama
     // subtela -> tela de onde veio (o Voltar volta para ela)
-    const PARENT = { retidas: 'mcp', regras: 'mcp', ia: 'mcp', nova: 'mcp', pronta: 'mcp', det: 'mcp', renovada: 'det', todas: 'mcp',
-        escrever: 'mcp', canais: 'escrever', addcanal: 'canais', canal: 'canais', envios: 'escrever', audio: 'mcp', midia: 'mcp' };
+    const PARENT = { seg: 'mcp', regras: 'seg', recusas: 'seg', nova: 'mcp', pronta: 'mcp', det: 'mcp', renovada: 'det', todas: 'mcp',
+        escrever: 'mcp', canais: 'escrever', addcanal: 'canais', canal: 'canais', envios: 'escrever', audio: 'mcp', midia: 'mcp', docs: 'mcp' };
     let canalJid = null;  // canal aberto (tela "canal")
     let escOcupado = false; // campo de limite ou de intervalo sendo salvo
     let midiaOcupado = false;
-    let midiaAviso = '';  // aviso dos campos de "Imagens no resumo" (valor recusado)
+    let midiaAviso = '';  // aviso dos campos numéricos (imagens, áudio, documentos): valor recusado
+    let ajuda = false;    // passo a passo do "?" de Acesso de fora do PC
+    let verEnd = false;   // endereço de fora à mostra (👁 Mostrar); some ao desligar ou fechar a tela
+    let deslizar = false; // acabou de ligar o acesso de fora: o bloco do endereço desliza para fora
     let busca = '';       // busca em "Adicionar canal"
     const abertas = {};   // seções recolhidas abertas ("Como a IA vê")
     let current = null;   // subtela aberta
@@ -346,7 +370,21 @@
     const kv = (html) => `<div class="wl-kv"><span>${html}</span></div>`;
     const fold = (id, titulo, corpo) => `<button class="wl-fold" data-fold="${id}" aria-expanded="${!!abertas[id]}"><span>${titulo}</span>${FOLD}</button>${abertas[id] ? corpo : ''}`;
     const nav = (icon, t, s, go, right = '') =>
-        `<button class="wl-nav" data-nav="${go}">${ICONS[icon]}<div class="wl-txt"><div class="wl-t">${t}</div><div class="wl-s">${s}</div></div>${right}</button>`;
+        `<button class="wl-nav" data-nav="${go}">${ICONS[icon]}<div class="wl-txt"><div class="wl-t">${t}</div><div class="wl-s">${s}</div></div>${right}${CHEV}</button>`;
+    // campo numérico (Enter ou sair do campo aplica; o Rust confere a faixa): q = fotos | anim | audio_min | doc_kb
+    const numero = (q, min, max, v, un, rotulo) => `<span class="wl-salva"><input class="wl-field wl-num wl-midia" data-q="${q}" type="number" min="${min}" max="${max}" step="1" inputmode="numeric" aria-label="${rotulo}" value="${v}">${un ? `<span class="wl-un">${un}</span>` : ''}</span>`;
+    const avisoNum = () => `<div class="wl-s wl-no wl-limaviso" role="alert">${esc(midiaAviso)}</div>`;
+    const NUM_CHAVE = { fotos: 'midia_fotos', anim: 'midia_anim', audio_min: 'audio_min', doc_kb: 'doc_kb' };
+    const NUM_TOAST = { fotos: (v) => 'Fotos: até ' + v + ' por resumo', anim: (v) => 'GIFs e figurinhas: até ' + v + ' por resumo',
+        audio_min: (v) => 'Áudio mais longo: ' + v + ' min', doc_kb: (v) => 'Texto dos documentos: até ' + v + ' KB' };
+    // tipos de documento: [opção, nome, extensões, o que a IA recebe]
+    const DOCS = [['pdf', 'PDF', '.pdf', 'Até 5 páginas por vez, como imagem'], ['docx', 'Word', '.docx', 'Texto do documento'],
+        ['xlsx', 'Excel', '.xlsx', 'Planilhas como tabela'], ['texto', 'Texto simples', '.txt .md .csv', 'Anotações, Markdown, CSV'],
+        ['pptx', 'PowerPoint', '.pptx', 'Texto dos slides (novo)']];
+    // https://<início>••••/mcp até o 👁 Mostrar
+    const oculto = (u) => { const m = /^(https:\/\/)([^/]+)(\/.*)?$/.exec(u || ''); return m ? m[1] + m[2].slice(0, 6) + '••••••••••••' + (m[3] || '') : '••••'; };
+    const EMBREVE = '<span class="wl-tag">em breve</span>';
+    const emBreve = (t, s) => `<div class="wl-row"><div class="wl-txt"><div class="wl-t">${t} ${EMBREVE}</div><div class="wl-s">${s}</div></div><button class="wl-switch" role="switch" aria-checked="false" aria-label="${t} (em breve)" disabled></button></div>`;
     const pad2 = (n) => String(n).padStart(2, '0');
     const diaDe = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
     // "2026-11-15 14:32" -> "hoje 14:32", "ontem 22:47" ou "13/11 09:10"
@@ -370,8 +408,8 @@
     const conn = () => (state.conexoes || []).find((c) => c.id === cur);
     const tile = (tipo) => tipo === 'outro' ? `<div class="wl-app wl-gen">${PLUG}</div>`
         : `<div class="wl-app${tipo === 'claude' ? ' wl-claude' : ''}">${APP_ICONS[tipo] || ''}</div>`;
-    const FORA = '<span class="wl-fora">de fora do PC</span>';
-    const linhaConn = (c) => `<button class="wl-conn" data-det="${c.id}">${tile(c.tipo)}<div class="wl-txt"><div class="wl-t">${esc(c.nome)}</div><div class="wl-s">${sub(c)}</div></div><span class="wl-chips">${c.fora ? FORA : ''}${c.le ? '<span class="wl-state">Lê</span>' : ''}${c.escreve ? '<span class="wl-state w">Escreve</span>' : ''}<span class="wl-state${c.ativa ? '' : ' off'}">${c.ativa ? 'Ativa' : 'Pausada'}</span></span>${CHEV}</button>`;
+    const EXT = '<span class="wl-ext">(Externo)</span>';
+    const linhaConn = (c) => `<button class="wl-conn" data-det="${c.id}">${tile(c.tipo)}<div class="wl-txt"><div class="wl-t">${esc(c.nome)}${c.fora ? ' ' + EXT : ''}</div><div class="wl-s">${sub(c)}</div></div><span class="wl-chips">${c.le ? '<span class="wl-state">Lê</span>' : ''}${c.escreve ? '<span class="wl-state w">Escreve</span>' : ''}<span class="wl-state${c.ativa ? '' : ' off'}">${c.ativa ? 'Ativa' : 'Pausada'}</span></span>${CHEV}</button>`;
     const sub = (c) => c.fora && !c.ultima && c.le ? `${c.escreve ? 'Lê e escreve' : 'Só lê'} · autorizado ${quandoT(c.criada)}` : (!c.le ? 'Não lê nada'
         : c.ultima ? `Última leitura ${quandoT(c.ultima)} · ${num(c.chamadas)} ${c.chamadas === 1 ? 'chamada' : 'chamadas'} · ${num(c.mensagens)} ${c.mensagens === 1 ? 'mensagem' : 'mensagens'}` : 'Ainda não leu nada') +
         (c.enviadas ? ` · ${num(c.enviadas)} ${c.enviadas === 1 ? 'enviada' : 'enviadas'}` : '');
@@ -482,54 +520,33 @@
                 row('Grupos que avisam', 'Escolha na tela Arquivadas, pelo botão ao lado do aviso', '<button class="wl-btn" data-act="archived">Escolher</button>');
         }],
         mcp: ['Conectores de IA', () => {
-            const [cls, text] = !state.mcp_enabled ? ['off', 'Leitura desligada: nenhuma IA lê, mesmo as conexões com "Pode ler"']
-                : state.mcp_listening ? ['', 'Leitura ativa neste computador']
-                : ['off', 'Porta 47800 ocupada: feche o programa que a usa e ligue de novo'];
-            const cs = state.conexoes || [], e = state.escrita, f = state.fora || {};
-            const pc = cs.filter((c) => !c.fora), fora = cs.filter((c) => c.fora);
-            return row('Permitir que IAs leiam suas conversas', '',
-                    sw('mcp_enabled', state.mcp_enabled, 'Permitir que IAs leiam suas conversas')) +
-                `<div class="wl-status ${cls}"><i></i>${text}</div>` +
-                group('Acesso de fora do PC <span class="wl-new">novo</span>') +
-                row('Acesso de fora do PC', 'Celular e apps da internet (Claude, Gemini)', sw('fora_on', f.ligado, 'Acesso de fora do PC')) +
-                (f.ligado
-                    ? (f.endereco ? '<div class="wl-status"><i></i>Ligado · túnel ativo pelo Tailscale</div>' +
-                        lbl('Endereço para colar no app') + copyrow(f.endereco, 'fora') +
-                        info('<b>Como conectar:</b> no Claude, em Conectores › Adicionar personalizado; no Gemini, em Conectores › Conectar a um servidor MCP. Cole o endereço. O app pede para entrar e o seu PC pergunta se pode.')
-                      : `<div class="wl-status bad"><i></i>Ligado, mas o túnel não abriu${f.erro ? ': ' + esc(f.erro) : ''}</div>`)
-                    : info('<b>Desligado:</b> o túnel está fechado. Ninguém de fora lê nada. O Claude Code do PC continua funcionando.') +
-                      (f.erro ? `<div class="wl-status bad"><i></i>${esc(f.erro)}</div>` : '')) +
-                group(`Conexões de fora (${fora.length})`) +
-                fora.map(linhaConn).join('') +
-                info('Cada app de fora é uma conexão: começa <b>só lendo</b>. Escrever e abrir documentos você liga em cada uma. Pausar um não mexe no outro.') +
-                group(`Neste PC (${pc.length}) <span class="wl-mut">· cada app tem a sua chave</span>`) +
-                pc.map(linhaConn).join('') +
-                '<button class="wl-newconn" data-act="nova"><span class="wl-plus">+</span>Nova conexão</button>' +
-                group('Escrever <span class="wl-new">novo</span>') +
-                nav('pen', 'Escrever', e.ligado ? `Ligado · ${e.canais.length} ${e.canais.length === 1 ? 'canal' : 'canais'} · limite por canal` : 'Desligado: nenhuma IA envia mensagem', 'escrever',
+            const cs = state.conexoes || [], e = state.escrita, f = state.fora || {}, a = state.audio, nr = fil.retidas.length;
+            const leitura = !state.mcp_enabled ? 'Leitura desligada: nenhuma IA lê, mesmo as conexões com "Pode ler"'
+                : state.mcp_listening ? 'Leitura ativa neste computador' : 'Porta 47800 ocupada: feche o programa que a usa e ligue de novo';
+            const tipos = DOCS.filter(([k]) => state['doc_' + k]).map(([, n]) => n);
+            const seg = [state.filtro_on ? 'Filtro ligado' : 'Filtro desligado',
+                state.filtro_on && (!state.filtro_ia ? 'só as regras' : ollamaOk() === false ? 'IA local fechada: só as regras' : 'IA local verificando'),
+                nr ? nr + (nr === 1 ? ' retida' : ' retidas') : ''].filter(Boolean).join(' · ');
+            return row('Permitir que IAs leiam suas conversas', leitura, sw('mcp_enabled', state.mcp_enabled, 'Permitir que IAs leiam suas conversas')) +
+                `<div class="wl-row"><div class="wl-txt"><div class="wl-t">Acesso de fora do PC<button class="wl-ajuda" data-act="ajuda" aria-expanded="${ajuda}" aria-label="Como conectar" title="Como conectar">?</button></div><div class="wl-s">Celular e apps da internet (Claude, Gemini)</div></div>${sw('fora_on', f.ligado, 'Acesso de fora do PC')}</div>` +
+                (ajuda ? info('<b>Como conectar:</b> 1) ligue aqui; 2) toque no olho e copie o endereço; 3) no Claude: Conectores › Adicionar personalizado; no Gemini: Conectores › Conectar a um servidor MCP; 4) cole e deixe ID e chave em branco; 5) confira o código e clique Sim no PC. Só na primeira vez de cada app.') : '') +
+                // o bloco existe sempre: ao ligar, ganha "on" depois de desenhado e desliza (sem animação com movimento reduzido)
+                `<div class="wl-desliza${f.ligado && !deslizar ? ' on' : ''}">` + (!f.ligado ? '' : f.endereco
+                    ? '<div class="wl-status"><i></i>Ligado · túnel ativo pelo Tailscale</div>' +
+                      `<div class="wl-addr"><code>${esc(verEnd ? f.endereco : oculto(f.endereco))}</code><button class="wl-btn" data-act="${verEnd ? 'copia_fora' : 'mostra_fora'}">${verEnd ? '⧉ Copiar' : '👁 Mostrar'}</button></div>`
+                    : `<div class="wl-status bad"><i></i>Ligado, mas o túnel não abriu${f.erro ? ': ' + esc(f.erro) : ''}</div>`) + '</div>' +
+                (!f.ligado && f.erro ? `<div class="wl-status bad"><i></i>${esc(f.erro)}</div>` : '') +
+                group('O que a IA pode fazer') +
+                nav('mic', 'Transcrever áudios', !a.ligado ? 'Desligado: a IA vê só [áudio 0:42]' : !a.motor ? 'Ligado, mas falta baixar o motor' : 'Ligado · modelo small · no seu PC', 'audio') +
+                nav('img', 'Ver imagens, figurinhas e GIFs', !state.midia_fotos && !state.midia_anim ? 'Desligado: a IA não abre imagens'
+                    : `Até ${state.midia_fotos} fotos e ${state.midia_anim} GIFs por resumo`, 'midia') +
+                nav('doc', 'Abrir documentos', tipos.length ? tipos.join(', ') : 'Nenhum tipo: a IA não abre documentos', 'docs') +
+                nav('pen', 'Escrever', e.ligado ? `Ligado · ${e.canais.length} ${e.canais.length === 1 ? 'canal' : 'canais'} · intervalo ${e.intervalo} s · anexos desligados` : 'Desligado: nenhuma IA envia mensagem', 'escrever',
                     `<span class="wl-state${e.ligado ? ' w' : ' off'}">${e.ligado ? 'Ligado' : 'Desligado'}</span>`) +
-                group('Filtro de mensagens') +
-                dica('filtro', 'Antes de a IA ver uma conversa, o app tira as mensagens que parecem <b>ordens para ela</b> ou <b>comandos de computador</b>. Elas ficam guardadas aqui, só no seu PC, para você decidir.') +
-                nav('inbox', 'Mensagens retidas', 'Revise e decida o que a IA pode ler', 'retidas',
-                    fil.retidas.length ? `<span class="wl-pill">${fil.retidas.length}</span>` : '') +
-                nav('list', 'Regras do filtro', 'Padrões prontos e os seus', 'regras') +
-                nav('ai', 'Verificação por IA local', !state.filtro_ia ? 'Desligada: só as regras valem'
-                    : ollamaOk() === false ? 'Ligada, mas o Ollama está desligado' : 'Gemma 4 E4B · ligada', 'ia') +
-                row('Avisar na bolinha quando reter', 'Mostra "1 mensagem retida" quando algo for guardado',
-                    sw('filtro_avisar', state.filtro_avisar, 'Avisar na bolinha quando reter')) +
-                group('Áudios <span class="wl-new">novo</span>') +
-                nav('mic', 'Transcrever áudios', !state.audio.ligado ? 'Desligado: a IA vê só [áudio 0:42]'
-                    : !state.audio.motor ? 'Ligado, mas falta baixar o motor' : `Ligado · ${num(state.audio.transcritos)} com texto`, 'audio',
-                    `<span class="wl-state${state.audio.ligado ? '' : ' off'}">${state.audio.ligado ? 'Ligado' : 'Desligado'}</span>`) +
-                group('Imagens <span class="wl-new">novo</span>') +
-                nav('img', 'Imagens no resumo', `Até ${state.midia_fotos} fotos e ${state.midia_anim} GIFs/figurinhas por resumo`, 'midia') +
-                group('Segurança') +
-                row('Avisar quando uma IA ler', 'Mostra qual conexão leu, qual conversa e quantas mensagens', sw('mcp_notify', state.mcp_notify, 'Avisar quando uma IA ler')) +
-                row('Mostrar também na janela', 'Com a bolinha ativa, só ela avisa', sw('notice_win', state.notice_win, 'Mostrar também na janela')) +
-                lbl('Onde aparece') +
-                NPOS.map(([id, name]) =>
-                    `<div class="wl-choice${state.notice_win && state.mcp_notify ? '' : ' wl-fade'}" role="radio" tabindex="0" aria-checked="${state.notice_pos === id}" data-npos="${id}"><div class="wl-lbl" style="margin:0;padding:0"><i></i><span style="flex:1">${name}</span><button class="wl-btn" data-nsee="${id}">Ver na tela</button></div></div>`).join('') +
-                `<div class="wl-bubble"><i style="background:#fff">${APP_ICONS.gemini.replace(/(width|height)="34"/g, '$1="22"')}</i><div><div class="wl-n">Gemini CLI leu Grupo da firma (exemplo)</div><div class="wl-m">402 mensagens</div></div></div>` +
+                nav('shield', 'Segurança', seg, 'seg', nr ? `<span class="wl-pill">${nr}</span>` : '') +
+                group(`Conexões (${cs.length}) <span class="wl-mut">· cada app tem a sua chave</span>`) +
+                [...cs.filter((c) => c.fora), ...cs.filter((c) => !c.fora)].map(linhaConn).join('') +
+                '<button class="wl-newconn" data-act="nova"><span class="wl-plus">+</span>Nova conexão</button>' +
                 (cs.length ? row('<span class="wl-danger">Revogar todas as conexões</span>', 'Todos os apps perdem o acesso de uma vez',
                     '<button class="wl-btn wl-danger" data-act="todas">Revogar todas</button>') : '') +
                 (fechadas().length ? `<div class="wl-actions"><button class="wl-btn" data-act="dicas">Mostrar dicas escondidas (${fechadas().length})</button></div>` : '');
@@ -544,6 +561,8 @@
                     `<span class="wl-pill g">${e.canais.length}</span>`) +
                 nav('clock', 'Histórico de envios', 'Hora, conexão, canal e tamanho. Nunca o texto.', 'envios') +
                 row('Intervalo entre envios', 'Segundos entre uma mensagem e outra, de 5 a 300.', campoNum('wl-int', 5, 300, e.intervalo, 'Segundos entre envios', 'salva_int')) +
+                group('Anexos (foto, vídeo, arquivo)') +
+                emBreve('Deixar a IA enviar anexos', 'Cada conexão também precisa de "Pode enviar anexos"') +
                 fold('exemplos', 'Como a IA vê', exemplos(e));
         }],
         canais: ['Canais permitidos', () => {
@@ -580,7 +599,7 @@
         }],
         pronta: ['Conexão criada', pronto('Cole no app e abra uma sessão <b>nova</b>. Você pode ver isto de novo na tela da conexão, a qualquer hora.', 'chave nova criada')],
         renovada: ['Chave renovada', pronto('O app conectado perdeu o acesso. Cole o comando novo nele e abra uma sessão nova.', 'a chave antiga já não funciona')],
-        det: [(c) => `<span class="wl-dt">${tile(c.tipo)}${esc(c.nome)}${c.fora ? ' ' + FORA : ''}</span>`, (c) => {
+        det: [(c) => `<span class="wl-dt">${tile(c.tipo)}${esc(c.nome)}${c.fora ? ' ' + EXT : ''}</span>`, (c) => {
             const e = state.escrita, meus = e.envios.filter((h) => h.conexao === c.id);
             const stat = (n, t) => `<div class="wl-stat"><b>${num(n)}</b><span>${t}</span></div>`;
             return `<div class="wl-status ${c.ativa ? '' : 'off'}"><i></i>${c.ativa ? 'Ativa' : c.fora ? 'Pausada: o app recebe "conexão pausada"' : 'Pausada: o app recebe "não autorizado"'} · ${c.fora ? 'autorizada' : 'criada'} em ${dataCurta(c.criada)}</div>` +
@@ -589,12 +608,13 @@
             row('Pode ler', c.le ? 'Vê todas as conversas. Só leitura; nada é marcado como lido.'
                 : 'Desligado: esta conexão não vê nenhuma conversa. Só recebe os nomes dos canais permitidos, para escolher onde escrever.', sw('conn_le', c.le, 'Pode ler')) +
             (!state.mcp_enabled && c.le ? kv('<b>A leitura está desligada em geral.</b> Nada é lido até você ligar em Conectores de IA, no topo.') : '') +
-            row('Pode abrir documentos', c.docs ? 'Abre PDF, Word, planilhas e textos quando você pedir. Zip, APK e programas nunca.'
+            row('Pode abrir documentos', c.docs ? 'Dos tipos marcados em Abrir documentos, quando você pedir. Zip, APK e programas nunca.'
                 : 'Desligado: a IA só vê nome, tipo e tamanho dos arquivos', sw('conn_docs', c.docs, 'Pode abrir documentos')) +
             group('Escrever') +
             row('Pode escrever', c.escreve ? `Só texto em: ${e.canais.length ? e.canais.map((x) => `${esc(x.nome)} (${x.limite}/h)`).join(', ') : 'nenhum canal ainda'}`
                 : 'Desligado: esta conexão não envia nada', sw('conn_escreve', c.escreve, 'Pode escrever')) +
             (!e.ligado && c.escreve ? kv('<b>Escrever está desligado em geral.</b> Nada é enviado até você ligar em Conectores de IA › Escrever.') : '') +
+            emBreve('Pode enviar anexos', 'Das pastas liberadas em Escrever') +
             (c.escreve ? '<div class="wl-actions" style="padding-top:0"><button class="wl-btn" data-nav="escrever">Canais e limite</button></div>' : '') +
             group('Conectar') + (c.fora
                 ? kv(c.autorizada ? `Entrou de fora do PC pelo túnel, autorizada aqui no PC. O login volta para <b>${esc(c.retorno || '—')}</b>.`
@@ -623,17 +643,44 @@
             const n = (state.conexoes || []).length;
             return `<div class="wl-confirm"><p><b>${n === 1 ? 'O app conectado perde' : `Todos os ${n} apps perdem`} o acesso agora.</b> As conexões e as chaves são apagadas. Para voltar a usar, crie as conexões de novo.</p><div class="wl-actions"><button class="wl-btn" data-act="voltar">Cancelar</button><button class="wl-btn wl-danger" data-act="revogar_todas">Revogar todas</button></div></div>`;
         }],
-        retidas: ['Mensagens retidas', () =>
-            dica('retidas', '<b>Liberar não executa nada.</b> O app nunca executa comando de mensagem. Liberar só deixa a IA <b>ler</b> a mensagem nas próximas leituras. Até lá, a IA vê apenas <code>[mensagem retida para revisão] Carlos, 14:32</code>, sem o texto.') +
-            (fil.retidas.length ? fil.retidas.map((r, i) =>
-                `<div class="wl-card"><div class="wl-head"><b>${esc(r.conversa)}</b><span>${esc(r.autor)}</span><span>${esc(quando(r.hora))}</span><span class="wl-why${r.motivo.startsWith('IA') ? ' ia' : ''}">${esc(r.motivo)}</span></div>
-                  <div class="wl-msg">${esc(r.texto)}</div>
-                  <div class="wl-act"><button class="wl-btn" data-lib="${i}">Liberar para a IA</button><button class="wl-btn wl-danger" data-del="${i}">Apagar</button></div></div>`).join('')
-                : `<div class="wl-empty">${CHECK}<div style="margin-top:8px">Nada retido. As mensagens com cara de comando aparecem aqui.</div></div>`) +
-            group('Como a bolinha avisa') +
-            '<div class="wl-bubble"><i>!</i><div><div class="wl-n">1 mensagem retida</div><div class="wl-m">Grupo da firma (exemplo): revise em Conectores de IA</div></div></div>'],
-        regras: ['Regras do filtro', () =>
-            '<div class="wl-s" style="padding-top:6px">Sempre valem, mesmo sem a IA local.</div>' +
+        seg: ['Segurança', () => {
+            const ok = ollamaOk(), n = fil.retidas.length;
+            const tx = fil.minhas.filter((r) => r.tipo !== 'regex').length, rx = fil.minhas.length - tx;
+            return info('Antes de a IA ver uma conversa, o app retém as mensagens que parecem <b>ordens para ela</b> ou <b>comandos de computador</b>. Ficam aqui, só no seu PC.') +
+                row('Filtro de mensagens', 'Regras prontas + as suas', sw('filtro_on', state.filtro_on, 'Filtro de mensagens')) +
+                `<div class="${state.filtro_on ? '' : 'wl-dim'}">` +
+                row('Verificar com a IA local', 'Gemma no seu PC pega o que as regras não pegam · se estiver fechada, valem só as regras', sw('filtro_ia', state.filtro_ia, 'Verificar com a IA local')) +
+                (state.filtro_ia ? `<div class="wl-status ${ok ? '' : ok === false ? 'bad' : 'off'}"><i></i>${ok ? 'Ollama ligado neste computador'
+                    : ok === false ? (teste && /modelo/.test(teste.erro) ? 'O Ollama não tem o modelo gemma4:e4b: só as regras estão valendo' : 'IA local fechada: só as regras estão valendo')
+                    : 'Procurando o Ollama…'}</div>` : '') +
+                nav('list', 'Minhas regras', fil.minhas.length ? `${tx} ${tx === 1 ? 'palavra' : 'palavras'} e ${rx} ${rx === 1 ? 'expressão' : 'expressões'}` : 'Nenhuma: valem as regras prontas', 'regras') +
+                row('Avisar na bolinha quando reter', 'Mostra "1 mensagem retida" quando algo for guardado', sw('filtro_avisar', state.filtro_avisar, 'Avisar na bolinha quando reter')) +
+                '</div>' +
+                group(`Mensagens retidas (${n})`) +
+                dica('retidas', '<b>Liberar não executa nada.</b> O app nunca executa comando de mensagem. Liberar só deixa a IA <b>ler</b> a mensagem nas próximas leituras. Até lá, a IA vê apenas <code>[mensagem retida para revisão] Carlos, 14:32</code>, sem o texto.') +
+                (n ? fil.retidas.map((r, i) =>
+                    `<div class="wl-card"><div class="wl-head"><b>${esc(r.conversa)}</b><span>${esc(r.autor)}</span><span>${esc(quando(r.hora))}</span><span class="wl-why${r.motivo.startsWith('IA') ? ' ia' : ''}">${esc(r.motivo)}</span></div>
+                      <div class="wl-msg">${esc(r.texto)}</div>
+                      <div class="wl-act"><button class="wl-btn" data-lib="${i}">Liberar</button><button class="wl-btn wl-danger" data-del="${i}">Apagar</button></div></div>`).join('')
+                    : `<div class="wl-empty">${CHECK}<div style="margin-top:8px">Nada retido. As mensagens com cara de comando aparecem aqui.</div></div>`) +
+                group('Acesso') +
+                nav('clock', 'Registro de recusas de login', 'Tentativas de fora que foram barradas', 'recusas') +
+                group('Avisos de leitura') +
+                row('Avisar quando uma IA ler', 'Mostra qual conexão leu, qual conversa e quantas mensagens', sw('mcp_notify', state.mcp_notify, 'Avisar quando uma IA ler')) +
+                row('Mostrar também na janela', 'Com a bolinha ativa, só ela avisa', sw('notice_win', state.notice_win, 'Mostrar também na janela')) +
+                lbl('Onde aparece') +
+                NPOS.map(([id, name]) =>
+                    `<div class="wl-choice${state.notice_win && state.mcp_notify ? '' : ' wl-fade'}" role="radio" tabindex="0" aria-checked="${state.notice_pos === id}" data-npos="${id}"><div class="wl-lbl" style="margin:0;padding:0"><i></i><span style="flex:1">${name}</span><button class="wl-btn" data-nsee="${id}">Ver na tela</button></div></div>`).join('') +
+                `<div class="wl-bubble"><i style="background:#fff">${APP_ICONS.gemini.replace(/(width|height)="34"/g, '$1="22"')}</i><div><div class="wl-n">Gemini CLI leu Grupo da firma (exemplo)</div><div class="wl-m">402 mensagens</div></div></div>`;
+        }],
+        recusas: ['Registro de recusas de login', () => {
+            const l = state.recusas || [];
+            return dica('recusas', 'Pedidos de fora do PC que o app barrou: login recusado, código errado, chave vencida. Só hora, rota e motivo: o registro nunca guarda código, token nem senha.') +
+                (l.length ? l.map((r) => `<div class="wl-hist"><span class="wl-when">${quandoT(r.t)}</span><span class="wl-canal"><b>${esc(r.status)} · ${esc(r.rota)}</b>${r.app ? '<br>' + esc(r.app) : ''}</span><span class="wl-q wl-no">${esc(r.motivo || '—')}</span></div>`).join('')
+                    : `<div class="wl-empty">${CHECK}<div style="margin-top:8px">Nenhuma recusa registrada.</div></div>`);
+        }],
+        regras: ['Minhas regras', () =>
+            '<div class="wl-s" style="padding-top:6px">Valem enquanto o filtro de mensagens estiver ligado, mesmo sem a IA local.</div>' +
             group('Regras prontas e suas') +
             window.__wlFiltro.PRONTAS.map((p) => `<div class="wl-rule"><span class="wl-k">${esc(p.k)}</span><code>${esc(p.mostra)}</code><span class="wl-k">pronta</span></div>`).join('') +
             fil.minhas.map((r, i) => `<div class="wl-rule"><span class="wl-k">${r.tipo === 'regex' ? 'Padrão' : 'Texto'}</span><code>${esc(r.v)}</code><button class="wl-x" data-rm="${i}" aria-label="Remover regra" title="Remover regra">${X}</button></div>`).join('') +
@@ -641,49 +688,38 @@
               <input class="wl-novo" placeholder="Ex.: transfira tudo" aria-label="Nova regra" maxlength="200"><button class="wl-btn" data-act="add">Adicionar</button></div>` +
             group('Testar uma frase') +
             '<div class="wl-test"><input class="wl-frase" placeholder="Digite uma frase para ver se seria retida" aria-label="Frase de teste"><div class="wl-verdict"></div></div>'],
-        ia: ['Verificação por IA local', () => {
-            const ok = ollamaOk();
-            return row('Usar a IA local', 'Lê as mensagens que passaram pelas regras e separa as que parecem ordens. Só lê: não executa nada.',
-                    sw('filtro_ia', state.filtro_ia, 'Usar a IA local')) +
-                `<div class="wl-status ${ok ? '' : ok === false ? 'bad' : 'off'}"><i></i>${ok ? 'Ollama ligado neste computador'
-                    : ok === false ? (teste && /modelo/.test(teste.erro) ? 'O Ollama não tem o modelo gemma4:e4b: só as regras estão valendo' : 'Ollama não encontrado: só as regras estão valendo')
-                    : 'Procurando o Ollama…'}</div>` +
-                `<div class="${state.filtro_ia ? '' : 'wl-dim'}">` +
-                group('Modelo') +
-                row('Gemma 4 E4B', (ok ? 'Já instalado no seu Ollama · ' : '') + 'roda só neste PC, nada sai da máquina', '<button class="wl-btn" data-act="ollama">Testar conexão</button>') +
-                group('Esteira em segundo plano') +
-                `<div class="wl-stats"><div class="wl-stat"><b>${fil.verificadas.toLocaleString('pt-BR')}</b><span>verificadas</span></div><div class="wl-stat"><b>${fil.retidas.length}</b><span>retidas</span></div><div class="wl-stat"><b>${fil.fila}</b><span>na fila</span></div></div>` +
-                dica('ia_esteira', 'A verificação roda em segundo plano, conforme as mensagens chegam, e o resultado fica guardado. Na hora da leitura quase tudo já está verificado.') +
-                (fechadas().includes('ia_sem') ? '' : group('Sem o Ollama')) +
-                dica('ia_sem', 'Quem não usa Ollama liga só as <b>regras</b>: o filtro continua valendo e a tela avisa "verificação por IA local desligada". A leitura nunca fica bloqueada.') +
-                '</div>';
-        }],
         audio: ['Transcrever áudios', () => {
             const a = state.audio, mb = (b) => num(Math.round(b / 1048576));
             const naFila = window.__wlAudio ? window.__wlAudio.fila() : 0;
             const [cls, txt] = a.baixando != null ? ['off', `Baixando o motor… ${mb(a.baixando)} de ${mb(a.total)} MB`]
                 : !a.motor ? ['bad', a.ligado ? 'Ligado, mas sem o motor: nada é transcrito' : 'Motor não instalado']
-                : a.ligado ? ['', naFila ? `Transcrevendo: ${num(naFila)} na fila` : 'Pronto: cada áudio novo vira texto']
+                : a.ligado ? ['', naFila ? `Transcrevendo: ${num(naFila)} na fila` : state.audio_chegar ? 'Pronto: cada áudio novo vira texto' : 'Pronto: transcreve quando uma IA lê']
                 : ['off', 'Desligado: a IA vê só [áudio 0:42]'];
-            return row('Transcrever áudios', 'Áudio vira texto aqui no PC, para as IAs com "Pode ler"', sw('audio_on', a.ligado, 'Transcrever áudios')) +
+            return row('Transcrever áudios', 'A IA recebe o texto do áudio, não o áudio', sw('audio_on', a.ligado, 'Transcrever áudios')) +
                 `<div class="wl-status ${cls}"><i></i>${txt}</div>` +
-                dica('audio', 'Cada áudio novo, de todas as conversas e grupos, é transcrito assim que chega, um por vez e com pouca CPU. Ao ligar e a cada abertura do app, os áudios dos últimos 7 dias também entram na fila, em segundo plano. O áudio nunca sai do PC: fica só o texto, guardado sem prazo. O WhatsApp apaga a mídia em 16 a 19 dias; o que não foi transcrito até lá fica "expirado".') +
-                group('Motor') +
-                row('whisper.cpp · modelo small', 'Só CPU, neste PC · ≈ ' + mb(a.total) + ' MB',
+                row('Motor', `whisper.cpp · modelo small · ${a.motor ? 'instalado' : 'não instalado'} (≈ ${mb(a.total)} MB)`,
                     a.motor ? '<button class="wl-btn wl-danger" data-act="apagar_motor">Apagar motor</button>'
                     : `<button class="wl-btn" data-act="baixar_motor"${a.baixando != null ? ' disabled' : ''}>Baixar motor</button>`) +
+                row('Áudio mais longo', 'Acima disso, vem só "[áudio longo demais]"', numero('audio_min', 1, 60, state.audio_min, 'min', 'Áudio mais longo, em minutos')) +
+                avisoNum() +
+                row('Transcrever ao chegar', 'Já deixa pronto antes de você pedir o resumo', sw('audio_chegar', state.audio_chegar, 'Transcrever ao chegar')) +
+                info('Tudo roda <b>no seu PC</b>. O áudio nunca sai daqui.') +
                 group('Transcrições guardadas') +
                 `<div class="wl-stats"><div class="wl-stat"><b>${num(a.transcritos)}</b><span>áudios com texto</span></div><div class="wl-stat"><b>${num(a.guardados - a.transcritos)}</b><span>sem fala, expirados ou longos</span></div></div>` +
                 row('Apagar transcrições', 'Só os textos guardados neste PC', `<button class="wl-btn wl-danger" data-act="apagar_trans"${a.guardados ? '' : ' disabled'}>Apagar</button>`);
         }],
-        midia: ['Imagens no resumo', () =>
-            lbl('Fotos por resumo') +
-            `<input class="wl-field wl-midia" data-q="fotos" type="number" min="0" max="200" step="1" inputmode="numeric" aria-label="Fotos por resumo" value="${state.midia_fotos}">` +
-            lbl('GIFs e figurinhas por resumo') +
-            `<input class="wl-field wl-midia" data-q="anim" type="number" min="0" max="200" step="1" inputmode="numeric" aria-label="GIFs e figurinhas por resumo" value="${state.midia_anim}">` +
-            `<div class="wl-s wl-no wl-limaviso" role="alert">${esc(midiaAviso)}</div>` +
-            lbl('De 0 a 200 cada. 0 = a IA não abre. Enter ou sair do campo aplica.') +
-            dica('midia', 'No resumo, a IA abre sozinha as imagens que importam, até estes números. Figurinha e GIF não gastam o teto das fotos. Mais imagens dão mais contexto e custam mais para a IA.')],
+        midia: ['Ver imagens, figurinhas e GIFs', () =>
+            row('Fotos por resumo', '0 = a IA não abre fotos · até 200', numero('fotos', 0, 200, state.midia_fotos, '', 'Fotos por resumo')) +
+            row('GIFs e figurinhas por resumo', 'Contam à parte das fotos · até 200', numero('anim', 0, 200, state.midia_anim, '', 'GIFs e figurinhas por resumo')) +
+            avisoNum() +
+            row('Baixar imagens que não foram baixadas', 'Mesmo com o download automático do WhatsApp desligado', sw('midia_baixar', state.midia_baixar, 'Baixar imagens que não foram baixadas')) +
+            info('A IA escolhe sozinha as imagens que importam (comentadas, respondidas, com legenda). Mais imagens dão mais contexto e custam mais para a IA.')],
+        docs: ['Abrir documentos', () =>
+            '<div class="wl-s" style="padding:4px 0 6px">Tipos que a IA pode abrir. Marcar aqui não libera sozinho: cada conexão também precisa de "Pode abrir documentos".</div>' +
+            DOCS.map(([k, n, ty, s]) => `<label class="wl-chk"><input type="checkbox" data-doc="${k}"${state['doc_' + k] ? ' checked' : ''}><span class="wl-ty">${ty}</span><div class="wl-txt"><div class="wl-t">${n}</div><div class="wl-s">${s}</div></div></label>`).join('') +
+            row('Tamanho máximo do texto', 'O resto é cortado', numero('doc_kb', 5, 500, state.doc_kb, 'KB', 'Tamanho máximo do texto, em KB')) +
+            avisoNum() +
+            info('Zip, apk, exe e outros executáveis <b>nunca</b> são abertos: a IA só vê o nome e o tamanho.')],
         aplicativo: ['Aplicativo', () =>
             row('Iniciar com o Windows', 'Abre escondido na bandeja quando o computador liga', sw('autostart', state.autostart, 'Iniciar com o Windows')) +
             row('Rodar em segundo plano', 'Fechar a janela deixa o app na bandeja', sw('run_in_background', state.run_in_background, 'Rodar em segundo plano')) +
@@ -706,6 +742,10 @@
         const [title, html] = VIEWS[current];
         el.querySelector('.wl-title').innerHTML = typeof title === 'function' ? title(c) : title;
         el.querySelector('.wl-body').innerHTML = html(c);
+        // acabou de ligar o acesso de fora: desenha recolhido e solta (a transição do CSS faz o resto)
+        const d = deslizar && el.querySelector('.wl-desliza');
+        deslizar = false;
+        if (d) { void d.offsetHeight; d.classList.add('on'); }
         fotos(el);
         // exemplos do aviso: os mesmos cartões que aparecem de verdade (message_popup.js)
         el.querySelectorAll('[data-ex]').forEach((ex) =>
@@ -734,6 +774,7 @@
             el.addEventListener('input', onInput);
             el.addEventListener('change', (e) => {
                 if (e.target.classList.contains('wl-midia')) aplicarMidia(e.target);
+                if (e.target.dataset.doc) marcaDoc(e.target);
             });
             el.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' && e.target.classList.contains('wl-novo')) return addRule();
@@ -755,15 +796,13 @@
         [state, fil] = await Promise.all([invoke('lite_get'), invoke('filtro_get')]);
         render();
         el.querySelector('.wl-body').scrollTop = 0;
-        if (name === 'ia') checkOllama(false);
+        if ((name === 'seg' || name === 'mcp') && state.filtro_ia) checkOllama();
     }
 
     // status do Ollama (lista de modelos: não carrega nada na placa de vídeo)
-    async function checkOllama(avisar) {
+    async function checkOllama() {
         teste = await invoke('filtro_ollama').catch(() => ({ ok: false, erro: '' }));
-        if (current === 'ia' || current === 'mcp') render();
-        if (avisar) toast(teste.ok ? `Conectou: respondeu em ${(teste.ms / 1000).toFixed(1).replace('.', ',')} s`
-            : /modelo/.test(teste.erro) ? 'O Ollama não tem o modelo gemma4:e4b' : 'Não achei o Ollama em 127.0.0.1:11434');
+        if (current === 'seg' || current === 'mcp') render();
     }
 
     async function addRule() {
@@ -849,18 +888,26 @@
         render();
     }
 
-    // "Imagens no resumo": inteiro de 0 a 200 em cada campo. Inválido: aviso e nada muda. Sem caixa (é custo, não poder).
+    // Campos numéricos (imagens 0 a 200, áudio 1 a 60 min, texto 5 a 500 KB): inteiro na faixa do campo. Inválido: aviso
+    // e nada muda (o Rust confere de novo). Sem caixa: é custo, não poder.
     async function aplicarMidia(input) {
-        const q = input.dataset.q, v = input.value.trim(), atual = state['midia_' + q];
+        const q = input.dataset.q, v = input.value.trim(), atual = state[NUM_CHAVE[q]], min = +input.min, max = +input.max;
         if (v === String(atual) || midiaOcupado) return;
         midiaOcupado = true;
         midiaAviso = '';
-        if (!/^[0-9]+$/.test(v) || +v > 200) midiaAviso = 'Valor inválido: use um número inteiro de 0 a 200. Nada mudou.';
+        if (!/^[0-9]+$/.test(v) || +v < min || +v > max) midiaAviso = `Valor inválido: use um número inteiro de ${min} a ${max}. Nada mudou.`;
         else {
             const r = await invoke('lite_midia', { qual: q, n: +v }).catch((e) => { midiaAviso = String(e); return null; });
-            if (r) { state = r; toast((q === 'fotos' ? 'Fotos' : 'GIFs e figurinhas') + ': até ' + v + ' por resumo'); }
+            if (r) { state = r; toast(NUM_TOAST[q](v)); }
         }
         midiaOcupado = false;
+        render();
+    }
+
+    // Abrir documentos: cada tipo é uma opção (doc_pdf...). Sem caixa: quem abre é a conexão com "Pode abrir documentos".
+    async function marcaDoc(input) {
+        const novo = await invoke('lite_set', { key: 'doc_' + input.dataset.doc, on: input.checked }).catch((e) => { toast(String(e)); return null; });
+        if (novo) { state = novo; toast((DOCS.find((d) => d[0] === input.dataset.doc) || [, ''])[1] + (input.checked ? ': a IA pode abrir' : ': a IA não abre mais')); }
         render();
     }
 
@@ -883,6 +930,7 @@
         const el = viewEl();
         if (el) el.remove();
         current = null;
+        verEnd = false;
     }
 
     function saveBubble() {
@@ -982,11 +1030,17 @@
         if (t.dataset.c) { state.bubble.color = t.dataset.c; paintColor(); return saveBubble(); }
         const act = t.dataset.act;
         if (act === 'add') return addRule();
-        if (act === 'ollama') return checkOllama(true);
         if (act === 'archived') { close(); return openArchived(); }
         if (act === 'nova') { novoTipo = 'claude'; novoNome = ''; return go('nova'); }
         if (act === 'criar') return criar();
         if (act === 'todas') return go('todas');
+        if (act === 'ajuda') { ajuda = !ajuda; return render(); }
+        if (act === 'mostra_fora') { verEnd = true; return render(); }
+        // Copiar: o app copia (mcp_copiar), como antes; o endereço não leva chave, então não pede a caixa
+        if (act === 'copia_fora') {
+            const ok = await invoke('mcp_copiar', { id: 0, oque: 'fora' }).catch((e) => String(e));
+            return toast(ok === true ? 'Endereço copiado' : ok || 'Não deu para copiar. Tente de novo.');
+        }
         if (act === 'ask_renovar' || act === 'ask_revogar' || act === 'nao') { asking = act === 'nao' ? null : act.slice(4); return render(); }
         if (act === 'renovar') {
             const fora = conn() && conn().fora;
@@ -1031,7 +1085,7 @@
         if (k === 'fora_on') {
             if (on) toast('Abrindo o túnel…');
             const novo = await invoke('mcp_fora', { acao: on ? 'ligar' : 'desligar' }).catch((e) => { toast(String(e)); return null; });
-            if (novo) { state = novo; toast(on ? 'Acesso de fora ligado' : 'Acesso de fora desligado: túnel fechado'); }
+            if (novo) { state = novo; deslizar = on; verEnd = false; toast(on ? 'Acesso de fora ligado' : 'Acesso de fora desligado: túnel fechado'); }
             return render();
         }
         if (k === 'bubble_mode') return on && invoke('bubble_enter');
@@ -1043,7 +1097,7 @@
         if (k === 'popup_on') window.__wlPopup.setOn(state.popup_on);
         if (k === 'notice_win') window.__wlPopup.setNotice(state.notice_win, state.notice_pos);
         render();
-        if (k === 'filtro_ia' && on) checkOllama(false);
+        if (k === 'filtro_ia' && on) checkOllama();
     }
 
     function onInput(e) {

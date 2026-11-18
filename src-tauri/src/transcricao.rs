@@ -30,10 +30,9 @@ const MODELO: &str = "ggml-small-q5_1.bin";
 const EXE: &str = "whisper-cli.exe";
 /// só o que o whisper-cli usa; o resto do pacote não é extraído
 const DO_ZIP: [&str; 5] = ["Release/whisper-cli.exe", "Release/whisper.dll", "Release/ggml.dll", "Release/ggml-base.dll", "Release/ggml-cpu-*.dll"];
-/// teto por áudio: acima disso, "longo demais"
-pub const DUR_MAX: u64 = 600;
-/// teto de tempo do whisper por áudio (10 min de áudio levam ~3 min com 4 threads)
-const PROCESSO_MAX: Duration = Duration::from_secs(900);
+/// teto de tempo do whisper por áudio: 15 min, ou a duração do áudio se for maior (10 min de áudio levam ~3 min
+/// com 4 threads; o "Áudio mais longo" da tela vai até 60 min)
+const PROCESSO_MIN: u64 = 900;
 
 /// Uma transcrição guardada: estado ("ok", "sem_fala", "expirado", "longo"), texto (só no "ok"), duração e quando.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -91,11 +90,13 @@ impl Transcricao {
         (exe.is_file() && modelo.is_file()).then_some((exe, modelo))
     }
 
-    /// Estado de um áudio para a leitura: guardado, longo demais (pela duração) ou "falta".
-    fn estado(&self, id: &str, dur: u64) -> Value {
+    /// Estado de um áudio para a leitura: guardado, longo demais (pela duração, contra `max` segundos) ou "falta".
+    /// O "longo" guardado volta a "falta" se o usuário subiu o teto e o áudio agora cabe.
+    fn estado(&self, id: &str, dur: u64, max: u64) -> Value {
         match self.cache.lock().unwrap().get(id) {
+            Some(e) if e.estado == "longo" && e.dur.max(dur) <= max => json!({"estado": "falta"}),
             Some(e) => json!({"estado": e.estado, "texto": e.texto}),
-            None if dur > DUR_MAX => json!({"estado": "longo"}),
+            None if dur > max => json!({"estado": "longo"}),
             None => json!({"estado": "falta"}),
         }
     }
@@ -294,7 +295,8 @@ impl Drop for Apaga<'_> {
 
 /// Roda o whisper-cli (CPU, 4 threads, prioridade abaixo do normal, português) com o WAV num arquivo temporário.
 /// ponytail: o `-f -` (entrada padrão) do b5454 lê o áudio mas não imprime o texto (medido); por isso o arquivo.
-fn rodar(exe: &Path, modelo: &Path, wav: Vec<u8>) -> Result<String, String> {
+fn rodar(exe: &Path, modelo: &Path, wav: Vec<u8>, seg: u64) -> Result<String, String> {
+    let prazo = Duration::from_secs(seg.max(PROCESSO_MIN));
     let tmp = exe.with_file_name(WAV_TMP);
     let _apaga = Apaga(&tmp);
     fs::write(&tmp, wav).map_err(|e| format!("Não gravou o áudio temporário: {e}"))?;
@@ -320,7 +322,7 @@ fn rodar(exe: &Path, modelo: &Path, wav: Vec<u8>) -> Result<String, String> {
     let status = loop {
         match p.try_wait() {
             Ok(Some(s)) => break s,
-            Ok(None) if inicio.elapsed() < PROCESSO_MAX => thread::sleep(Duration::from_millis(200)),
+            Ok(None) if inicio.elapsed() < prazo => thread::sleep(Duration::from_millis(200)),
             _ => {
                 let _ = p.kill();
                 let _ = p.wait();
@@ -339,12 +341,20 @@ fn ligado(app: &AppHandle) -> bool {
     app.state::<crate::Settings>().audio_on.load(Ordering::Relaxed)
 }
 
-/// Estado dos áudios pedidos (por id) e da transcrição: ligada, motor, andamento do download, contadores.
+/// "Áudio mais longo" da tela, em segundos (1 a 60 min, padrão 10).
+fn max_seg(app: &AppHandle) -> u64 {
+    app.state::<crate::Settings>().audio_min.load(Ordering::Relaxed) * 60
+}
+
+/// Estado dos áudios pedidos (por id) e da transcrição: ligada, motor, andamento do download, contadores e
+/// `chegar` ("Transcrever ao chegar": desligado, a página só transcreve o que uma leitura pede).
 #[tauri::command]
 pub fn audio_ler(app: AppHandle, itens: Vec<Pedido>) -> Value {
     let t = app.state::<Transcricao>();
+    let max = max_seg(&app);
     let mut v = t.visao(ligado(&app));
-    v["entradas"] = itens.iter().map(|p| (p.id.clone(), t.estado(&p.id, p.dur))).collect::<serde_json::Map<_, _>>().into();
+    v["chegar"] = app.state::<crate::Settings>().audio_chegar.load(Ordering::Relaxed).into();
+    v["entradas"] = itens.iter().map(|p| (p.id.clone(), t.estado(&p.id, p.dur, max))).collect::<serde_json::Map<_, _>>().into();
     v
 }
 
@@ -363,13 +373,13 @@ pub async fn audio_transcrever(app: AppHandle, id: String, dur: u64, wav: String
         let bytes = de_base64(&wav).ok_or("WAV inválido.")?;
         drop(wav);
         let seg = segundos_wav(&bytes).ok_or("WAV inválido.")?;
-        if dur.max(seg) > DUR_MAX {
+        if dur.max(seg) > max_seg(&app) {
             return Ok(t.guardar(&id, "longo", String::new(), dur.max(seg)));
         }
         let (exe, modelo) = t.arquivos().ok_or("Motor não instalado.")?;
         let saida = {
             let _vez = VEZ.lock().unwrap_or_else(|e| e.into_inner());
-            rodar(&exe, &modelo, bytes)?
+            rodar(&exe, &modelo, bytes, seg)?
         };
         // desligou enquanto transcrevia: não guarda
         if !ligado(&app) {
@@ -453,23 +463,31 @@ mod tests {
     fn cache_so_texto_e_tetos() {
         let d = temp("cache");
         let t = Transcricao::load(Some(d.clone()));
-        assert_eq!(t.estado("a", 42)["estado"], "falta");
-        assert_eq!(t.estado("b", DUR_MAX + 1)["estado"], "longo", "acima de 10 min nem entra na fila");
-        assert_eq!(t.estado("c", DUR_MAX)["estado"], "falta", "10 min ainda transcreve");
+        const DEZ: u64 = 600;
+        assert_eq!(t.estado("a", 42, DEZ)["estado"], "falta");
+        assert_eq!(t.estado("b", DEZ + 1, DEZ)["estado"], "longo", "acima de 10 min nem entra na fila");
+        assert_eq!(t.estado("c", DEZ, DEZ)["estado"], "falta", "10 min ainda transcreve");
+        // "Áudio mais longo" configurável: 1 min recusa 61 s; 60 min aceita 59 min
+        assert_eq!(t.estado("b", 61, 60)["estado"], "longo");
+        assert_eq!(t.estado("b", 59 * 60, 3600)["estado"], "falta");
+        // "longo" guardado com o teto antigo: subir o teto devolve à fila; descer não mexe no que já tem texto
+        t.guardar("l", "longo", String::new(), 900);
+        assert_eq!(t.estado("l", 900, DEZ)["estado"], "longo");
+        assert_eq!(t.estado("l", 900, 1200)["estado"], "falta");
         t.guardar("a", "ok", "oi gente".into(), 42);
         t.guardar("e", "expirado", String::new(), 9);
         // reabrir: lê do arquivo; o arquivo tem texto, duração e quando, nunca o áudio
         let t2 = Transcricao::load(Some(d.clone()));
-        assert_eq!(t2.estado("a", 42), json!({"estado": "ok", "texto": "oi gente"}));
-        assert_eq!(t2.estado("e", 9)["estado"], "expirado");
+        assert_eq!(t2.estado("a", 42, 60), json!({"estado": "ok", "texto": "oi gente"}));
+        assert_eq!(t2.estado("e", 9, DEZ)["estado"], "expirado");
         let arq: Value = serde_json::from_str(&fs::read_to_string(d.join("transcricoes.json")).unwrap()).unwrap();
         assert_eq!(arq["a"]["dur"], 42);
         assert!(arq["a"]["t"].as_u64().unwrap() > 0 && arq["e"].get("texto").is_none());
         let v = t2.visao(false);
-        assert_eq!((v["transcritos"].as_u64(), v["guardados"].as_u64(), v["motor"].as_bool()), (Some(1), Some(2), Some(false)));
+        assert_eq!((v["transcritos"].as_u64(), v["guardados"].as_u64(), v["motor"].as_bool()), (Some(1), Some(3), Some(false)));
         // apagar transcrições: some o arquivo e tudo volta a "falta"
         t2.limpar().unwrap();
-        assert!(!d.join("transcricoes.json").exists() && t2.estado("a", 42)["estado"] == "falta");
+        assert!(!d.join("transcricoes.json").exists() && t2.estado("a", 42, DEZ)["estado"] == "falta");
         // motor: só conta com o exe e o modelo; apagar some com a pasta
         fs::create_dir_all(d.join("whisper")).unwrap();
         fs::write(d.join("whisper").join(EXE), b"x").unwrap();
@@ -477,7 +495,7 @@ mod tests {
         fs::write(d.join("whisper").join(MODELO), b"x").unwrap();
         assert!(t2.arquivos().is_some());
         // o WAV temporário some mesmo quando o motor falha (aqui o "exe" nem é programa)
-        assert!(rodar(&d.join("whisper").join(EXE), &d.join("whisper").join(MODELO), b"RIFF....WAVE".to_vec()).is_err());
+        assert!(rodar(&d.join("whisper").join(EXE), &d.join("whisper").join(MODELO), b"RIFF....WAVE".to_vec(), 1).is_err());
         assert!(!d.join("whisper").join(WAV_TMP).exists(), "o áudio não fica no disco");
         t2.apagar_motor().unwrap();
         assert!(t2.arquivos().is_none() && !d.join("whisper").exists());

@@ -206,6 +206,20 @@ impl Fora {
         r
     }
 
+    /// As últimas `n` recusas do log, a mais nova primeiro, para a tela (Segurança › Registro de recusas de login):
+    /// hora, status, rota, motivo e o nome que o app deu a si mesmo. O resto da linha (endereços, user-agent) fica fora.
+    pub fn recusas(&self, n: usize) -> Vec<Value> {
+        let texto = self.log.as_ref().and_then(|a| std::fs::read_to_string(a).ok()).unwrap_or_default();
+        texto.lines().rev().take(n).filter_map(|l| {
+            let mut p = l.splitn(3, " | ");
+            let (cab, motivo, campos) = (p.next()?, p.next().unwrap_or(""), p.next().unwrap_or("{}"));
+            let mut c = cab.split(' ');
+            let (t, status, metodo, rota) = (c.next()?.parse::<u64>().ok()?, c.next()?, c.next()?, c.next()?);
+            let app = serde_json::from_str::<Value>(campos).ok().and_then(|v| v["client_name"].as_str().map(|s| s.chars().take(40).collect::<String>()));
+            Some(json!({"t": t, "status": status, "rota": format!("{metodo} {rota}"), "motivo": motivo, "app": app}))
+        }).collect()
+    }
+
     /// Acrescenta uma linha ao log de recusas. Passou de LOG_MAX: o atual vira .old e recomeça.
     fn anotar(&self, linha: &str) {
         use std::io::Write;
@@ -1186,6 +1200,16 @@ mod tests {
 {log}");
         }
         assert_eq!(log.lines().count(), 6);
+        // a tela (Registro de recusas de login): a mais nova primeiro, só hora, status, rota, motivo e o nome do app
+        let r = t.f.recusas(20);
+        assert_eq!(r.len(), 6);
+        assert_eq!((r[0]["status"].as_str(), r[0]["rota"].as_str()), (Some("404"), Some("GET /.well-known/openid-configuration")));
+        assert_eq!((r[5]["rota"].as_str(), r[5]["motivo"].as_str(), r[5]["app"].as_str()), (Some("POST /register"), Some("invalid_redirect_uri: Só endereços https://, até 10."), Some("Google")));
+        let tela = serde_json::to_string(&r).unwrap();
+        for fora in ["http://x.com/cb", "Google-teste", "SEGREDO", "CODIGO1"] {
+            assert!(!tela.contains(fora), "a tela não mostra {fora:?}");
+        }
+        assert_eq!(t.f.recusas(2).len(), 2);
         // teto: passou de LOG_MAX, o atual vira .old e recomeça
         std::fs::write(dir.join("fora-oauth.log"), vec![b'x'; LOG_MAX as usize + 1]).unwrap();
         t.ir(req("GET", "/nada", &[], ""));
