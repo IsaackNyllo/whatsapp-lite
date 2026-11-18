@@ -18,9 +18,10 @@ use tauri::{AppHandle, Manager};
 use crate::mcp::{self, Acesso, Conexoes, Request};
 
 pub const PORTA: u16 = 47801;
-/// Porta pública do Funnel. A 443 deste PC já tem um `tailscale serve` do usuário (só na tailnet): ligar o Funnel nela
-/// abriria aquilo também para a internet. A 8443 é uma das três que o Funnel aceita (443, 8443, 10000).
-const PORTA_PUBLICA: u16 = 8443;
+/// Porta pública do Funnel: 443, porque o backend do claude.ai só conecta na 443 (issue #125 de anthropics/claude-ai-mcp).
+/// O Funnel liga a porta inteira: se a 443 tiver outro `tailscale serve`, o app recusa abrir (ele iria para a internet).
+const PORTA_PUBLICA: u16 = 443;
+const DESTINO: &str = "http://127.0.0.1:47801";
 const TAILSCALE: &str = r"C:\Program Files\Tailscale\tailscale.exe";
 const TITULO_CAIXA: &str = "WhatsApp Lite · autorizar app";
 /// Segundos para responder no PC; depois disso, recusado.
@@ -82,7 +83,7 @@ struct Token {
 pub struct Fora {
     pub ligado: AtomicBool,
     ouvindo: AtomicBool,
-    /// "https://<máquina>.ts.net:8443"; None = túnel não aberto
+    /// "https://<máquina>.ts.net"; None = túnel não aberto
     base: Mutex<Option<String>>,
     erro: Mutex<Option<String>>,
     clientes: Mutex<Vec<Cliente>>,
@@ -435,7 +436,33 @@ fn tailscale(args: &[&str]) -> Result<String, String> {
     }
 }
 
-/// Liga o Funnel (8443 público -> 127.0.0.1:47801) e devolve o endereço base. Não mexe no resto da configuração.
+fn serve_status() -> Result<Value, String> {
+    serde_json::from_str(&tailscale(&["serve", "status", "--json"])?).map_err(|_| "Resposta estranha do Tailscale.".to_string())
+}
+
+/// Os handlers da porta pública em `tailscale serve status --json`: (caminho, destino).
+fn handlers(serve: &Value) -> Vec<(String, String)> {
+    let fim = format!(":{PORTA_PUBLICA}");
+    let mut v: Vec<(String, String)> = serve["Web"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(k, _)| k.ends_with(&fim))
+        .flat_map(|(_, w)| w["Handlers"].as_object().into_iter().flatten())
+        .map(|(p, h)| (p.clone(), h["Proxy"].as_str().or(h["Path"].as_str()).unwrap_or("outro").to_string()))
+        .collect();
+    if let Some(f) = serve["TCP"][PORTA_PUBLICA.to_string()]["TCPForward"].as_str() {
+        v.push(("tcp".into(), f.into()));
+    }
+    v
+}
+
+/// Algum serviço que não é deste app na porta pública? (o Funnel o abriria para a internet)
+fn alheio(serve: &Value) -> Option<String> {
+    handlers(serve).into_iter().find(|(_, d)| d != DESTINO).map(|(p, d)| format!("{p} → {d}"))
+}
+
+/// Liga o Funnel (443 público -> 127.0.0.1:47801) e devolve o endereço base. Não mexe no resto da configuração.
 pub fn abrir_tunel() -> Result<String, String> {
     let st: Value = serde_json::from_str(&tailscale(&["status", "--json"])?).map_err(|_| "Resposta estranha do Tailscale.".to_string())?;
     if st["BackendState"] != "Running" {
@@ -445,14 +472,18 @@ pub fn abrir_tunel() -> Result<String, String> {
     if dns.is_empty() {
         return Err("O Tailscale não informou o nome deste PC.".into());
     }
-    tailscale(&["funnel", "--bg", "--yes", &format!("--https={PORTA_PUBLICA}"), &format!("http://127.0.0.1:{PORTA}")])
-        .map_err(|e| format!("O Tailscale não abriu o túnel: {e}"))?;
-    Ok(format!("https://{dns}:{PORTA_PUBLICA}"))
+    if let Some(x) = alheio(&serve_status()?) {
+        return Err(format!("A porta {PORTA_PUBLICA} deste PC já tem outro serviço do Tailscale ({x}). Ligar o túnel o abriria para a internet: mude esse serviço de porta e ligue de novo."));
+    }
+    tailscale(&["funnel", "--bg", "--yes", &format!("--https={PORTA_PUBLICA}"), DESTINO]).map_err(|e| format!("O Tailscale não abriu o túnel: {e}"))?;
+    // 443 é a porta padrão do https: o endereço vai sem ela (forma canônica que o Claude usa)
+    Ok(format!("https://{dns}"))
 }
 
-/// Fecha só o túnel deste app (o que aponta para a 47801); o resto do Tailscale fica como está.
+/// Fecha só o túnel deste app; com outro serviço na mesma porta não mexe (o `off` apagaria os dois).
 pub fn fechar_tunel() -> Result<(), String> {
-    if !tailscale(&["funnel", "status", "--json"])?.contains(&format!("127.0.0.1:{PORTA}")) {
+    let serve = serve_status()?;
+    if handlers(&serve).is_empty() || alheio(&serve).is_some() {
         return Ok(());
     }
     tailscale(&["funnel", &format!("--https={PORTA_PUBLICA}"), "off"]).map(|_| ())
@@ -697,7 +728,8 @@ fn pkce_ok(s: &str) -> bool {
 fn recurso_ok(r: &str, base: &str) -> bool {
     let r = r.trim_end_matches('/').to_ascii_lowercase();
     let base = base.to_ascii_lowercase();
-    r == base || r == format!("{base}/mcp")
+    // com ou sem a porta padrão escrita (":443")
+    [base.clone(), format!("{base}:443")].iter().any(|b| r == *b || r == format!("{b}/mcp"))
 }
 
 fn segredo_ok(guardado: &Option<String>, dado: Option<&str>) -> bool {
@@ -731,7 +763,7 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
 
-    const BASE: &str = "https://pc.tail0.ts.net:8443";
+    const BASE: &str = "https://pc.tail0.ts.net";
     const RETORNO: &str = "https://claude.ai/api/mcp/auth_callback";
     const INIT: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#;
     // par PKCE conferido fora do app (Python hashlib + base64url)
@@ -1075,6 +1107,25 @@ mod tests {
         assert_eq!(host_de("https://User@Claude.AI:443/x?y"), "claude.ai:443");
         assert_eq!(tipo_de("https://claude.com/api/mcp/auth_callback"), "claude");
         assert_eq!(tipo_de("https://evilclaude.ai/x"), "outro");
-        assert!(recurso_ok(&format!("{BASE}/mcp/"), BASE) && recurso_ok(&BASE.to_uppercase(), BASE) && !recurso_ok("https://pc.tail0.ts.net/mcp", BASE));
+        assert!(recurso_ok(&format!("{BASE}/mcp/"), BASE) && recurso_ok(&BASE.to_uppercase(), BASE) && recurso_ok("https://pc.tail0.ts.net:443/mcp", BASE));
+        assert!(!recurso_ok("https://pc.tail0.ts.net:8443/mcp", BASE) && !recurso_ok("https://outro.ts.net/mcp", BASE));
+    }
+
+    #[test]
+    fn trava_da_porta_443() {
+        // como `tailscale serve status --json` deste PC antes da troca: o serve do GaIA na 443
+        let gaia = json!({"TCP": {"443": {"HTTPS": true}}, "Web": {"pc.ts.net:443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:8000"}}}}});
+        assert_eq!(alheio(&gaia).as_deref(), Some("/ → http://127.0.0.1:8000"), "recusa abrir");
+        // GaIA na 8443 (só tailnet): a 443 livre
+        let livre = json!({"TCP": {"8443": {"HTTPS": true}}, "Web": {"pc.ts.net:8443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:8000"}}}}});
+        assert_eq!((alheio(&livre), handlers(&livre).len()), (None, 0), "abre; e fechar não mexe em nada");
+        assert!(alheio(&json!({})).is_none());
+        // só o nosso: fecha; nosso + outro caminho ou TCP na mesma porta: não abre e não fecha
+        let nosso = json!({"Web": {"pc.ts.net:443": {"Handlers": {"/": {"Proxy": DESTINO}}}}});
+        assert_eq!((alheio(&nosso), handlers(&nosso).len()), (None, 1));
+        let misto = json!({"Web": {"pc.ts.net:443": {"Handlers": {"/": {"Proxy": DESTINO}, "/x": {"Path": "C:\\site"}}}}});
+        assert_eq!(alheio(&misto).as_deref(), Some("/x → C:\\site"));
+        let tcp = json!({"TCP": {"443": {"TCPForward": "127.0.0.1:22"}}});
+        assert!(alheio(&tcp).is_some());
     }
 }
