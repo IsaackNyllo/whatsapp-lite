@@ -415,6 +415,12 @@ pub fn ouvir(app: &AppHandle) -> std::io::Result<()> {
 fn servir(app: &AppHandle, mut stream: std::net::TcpStream) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     let r = match mcp::read_request(&stream) {
+        // ícone do app: público, sem token (só enquanto o acesso de fora está ligado)
+        Ok(req) if mcp::icone(&req).is_some() && app.state::<Fora>().ligado.load(Ordering::Relaxed) => {
+            let (tipo, bytes) = mcp::icone(&req).unwrap();
+            mcp::responder(&mut stream, 200, tipo, &[("Cache-Control", "public, max-age=86400".into())], bytes);
+            return;
+        }
         Ok(req) => {
             let leitura = app.state::<crate::Settings>().mcp_enabled.load(Ordering::Relaxed) || app.state::<mcp::Escrita>().ligado();
             let pede = |pedido: &str, nome: &str, numero: &str, host: &str| caixa(app.clone(), pedido.into(), nome.into(), numero.into(), host.into());
