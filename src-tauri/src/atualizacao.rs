@@ -4,8 +4,8 @@ use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 
-const API: &str = "https://api.github.com/repos/IsaackNyllo/whatsapp-lite/releases/latest";
-const PAGINA: &str = "https://github.com/IsaackNyllo/whatsapp-lite/releases/latest";
+const API: &str = "https://api.github.com/repos/IsaackNyllo/zap-plus/releases/latest";
+const PAGINA: &str = "https://github.com/IsaackNyllo/zap-plus/releases/latest";
 
 /// "v1.4.0" -> (1, 4, 0). Sufixo (-beta) ou formato estranho: None (não avisa).
 fn versao(s: &str) -> Option<(u64, u64, u64)> {
