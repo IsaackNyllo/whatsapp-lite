@@ -499,12 +499,12 @@
                       : `<div class="wl-status bad"><i></i>Ligado, mas o túnel não abriu${f.erro ? ': ' + esc(f.erro) : ''}</div>`)
                     : info('<b>Desligado:</b> o túnel está fechado. Ninguém de fora lê nada. O Claude Code do PC continua funcionando.') +
                       (f.erro ? `<div class="wl-status bad"><i></i>${esc(f.erro)}</div>` : '')) +
+                group(`Conexões de fora (${fora.length})`) +
+                fora.map(linhaConn).join('') +
+                info('Cada app de fora é uma conexão: começa <b>só lendo</b>. Escrever e abrir documentos você liga em cada uma. Pausar um não mexe no outro.') +
                 group(`Neste PC (${pc.length}) <span class="wl-mut">· cada app tem a sua chave</span>`) +
                 pc.map(linhaConn).join('') +
                 '<button class="wl-newconn" data-act="nova"><span class="wl-plus">+</span>Nova conexão</button>' +
-                group(`De fora do PC (${fora.length})`) +
-                fora.map(linhaConn).join('') +
-                info('Cada app de fora é uma conexão: começa <b>só lendo</b>. Escrever e abrir documentos você liga em cada uma. Pausar um não mexe no outro.') +
                 group('Escrever <span class="wl-new">novo</span>') +
                 nav('pen', 'Escrever', e.ligado ? `Ligado · ${e.canais.length} ${e.canais.length === 1 ? 'canal' : 'canais'} · limite por canal` : 'Desligado: nenhuma IA envia mensagem', 'escrever',
                     `<span class="wl-state${e.ligado ? ' w' : ' off'}">${e.ligado ? 'Ligado' : 'Desligado'}</span>`) +
